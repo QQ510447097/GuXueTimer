@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "1.0.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "1.0.0",
+			"CompanyName": "GuXue",
+			"FileDescription": "专注学习计时器",
+			"LegalCopyright": "(c) 2026, GuXue",
+			"ProductName": "GoXueTimer",
+			"Comments": "Go + Wails v3 + Vue 3"
+		}
+	}
+}

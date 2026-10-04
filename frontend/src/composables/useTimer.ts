@@ -1,0 +1,170 @@
+import { computed, readonly, ref, type Ref } from "vue";
+import { Events } from "@wailsio/runtime";
+import * as TimerService from "../../bindings/goxuetimer/timerservice";
+import type { TimerStateDTO, StopResultDTO } from "../../bindings/goxuetimer/models";
+import { errText } from "./format";
+import { refreshRecords } from "./useRecords";
+
+export type TimerState = "idle" | "running" | "paused";
+
+/**
+ * 时钟与提醒进度都靠这里的 now 平滑推进。
+ *
+ * 后端心跳是 30 秒一次，直接用它驱动界面会让秒数一顿一顿；250ms 既够顺滑，
+ * 又不会像 rAF 那样在后台窗口空转。
+ */
+const clockTickMs = 250;
+
+const state = ref<TimerStateDTO | null>(null);
+const now = ref(Date.now());
+const busy = ref(false);
+const lastError = ref("");
+
+let ticker: ReturnType<typeof setInterval> | null = null;
+let subscribed = false;
+let initialized = false;
+
+function applyState(dto: TimerStateDTO): void {
+	state.value = dto;
+	now.value = Date.now();
+}
+
+/** 当前运行段已经走过的时间。非 running、时间戳不可解析或时钟回拨时为 0。 */
+function runningDeltaSec(anchor: string, stamp: number): number {
+	if (!anchor) return 0;
+	const parsed = Date.parse(anchor);
+	if (Number.isNaN(parsed)) return 0;
+	const delta = (stamp - parsed) / 1000;
+	return delta > 0 ? delta : 0;
+}
+
+async function run(fn: () => Promise<TimerStateDTO>): Promise<void> {
+	busy.value = true;
+	lastError.value = "";
+	try {
+		applyState(await fn());
+	} catch (err) {
+		lastError.value = errText(err);
+	} finally {
+		busy.value = false;
+	}
+}
+
+export function pullState(): Promise<void> {
+	return run(() => TimerService.GetState());
+}
+
+export function startTimer(): Promise<void> {
+	return run(() => TimerService.Start());
+}
+
+export function pauseTimer(): Promise<void> {
+	return run(() => TimerService.Pause());
+}
+
+export function resumeTimer(): Promise<void> {
+	return run(() => TimerService.Resume());
+}
+
+export async function stopTimer(): Promise<StopResultDTO | null> {
+	busy.value = true;
+	lastError.value = "";
+	try {
+		const result = await TimerService.Stop();
+		// Stop 的返回值不含最新状态，重新拉一次。
+		await pullState();
+		return result;
+	} catch (err) {
+		lastError.value = errText(err);
+		return null;
+	} finally {
+		busy.value = false;
+	}
+}
+
+export function discardTimer(): Promise<void> {
+	return run(() => TimerService.Discard());
+}
+
+/**
+ * 计时状态是模块级单例：三个视图拿到的是同一份数据，事件也只在模块作用域订阅一次。
+ */
+export function useTimer() {
+	if (!subscribed) {
+		subscribed = true;
+
+		Events.On("timer:state", (ev) => {
+			applyState(ev.data as TimerStateDTO);
+		});
+
+		Events.On("records:changed", () => {
+			void refreshRecords();
+			// 记录落库后「今日已落库时长」也变了，顺手拉一次权威状态。
+			void pullState();
+		});
+	}
+
+	if (!initialized) {
+		initialized = true;
+		if (ticker === null) {
+			ticker = setInterval(() => {
+				now.value = Date.now();
+			}, clockTickMs);
+		}
+		void pullState();
+	}
+
+	const elapsedSec = computed(() => {
+		const s = state.value;
+		if (!s) return 0;
+		let sec = s.accumulatedSec;
+		if (s.state === "running" && s.runningSince) {
+			sec += runningDeltaSec(s.runningSince, now.value);
+		}
+		return Math.floor(sec);
+	});
+
+	// 今日累计 = 已落库的部分 + 正在走的这一段，否则数字要等 30 秒心跳才跳。
+	const todayTotalSec = computed(() => {
+		const s = state.value;
+		if (!s) return 0;
+		return s.todayTotalSec + elapsedSec.value;
+	});
+
+	/**
+	 * 休息提醒进度。breakElapsedSec 是后端上次结算时的值，
+	 * running 时同样要自己往前推，否则进度条是死的。
+	 */
+	const breakSec = computed(() => {
+		const s = state.value;
+		const interval = s ? Math.max(0, s.breakIntervalSec) : 0;
+		let elapsed = s ? Math.max(0, s.breakElapsedSec) : 0;
+		if (s && s.state === "running" && s.breakIntervalSec > 0) {
+			elapsed += runningDeltaSec(s.runningSince, now.value);
+		}
+		if (interval > 0 && elapsed > interval) elapsed = interval;
+		return { elapsed, interval };
+	});
+
+	const stateText = computed(() => {
+		switch (state.value?.state) {
+			case "running":
+				return "运行中";
+			case "paused":
+				return "已暂停";
+			default:
+				return "未开始";
+		}
+	});
+
+	return {
+		state: readonly(state) as Readonly<Ref<TimerStateDTO | null>>,
+		now: readonly(now) as Readonly<Ref<number>>,
+		busy: readonly(busy) as Readonly<Ref<boolean>>,
+		lastError: readonly(lastError) as Readonly<Ref<string>>,
+		elapsedSec,
+		todayTotalSec,
+		breakSec,
+		stateText,
+	};
+}

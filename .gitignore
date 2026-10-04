@@ -1,0 +1,18 @@
+.task
+bin
+frontend/dist
+frontend/node_modules
+
+# go build . 会在当前目录留下以模块名命名的可执行文件
+*.exe
+
+# tools/ 下的 Python 辅助脚本被直接执行或互相导入时会生成缓存
+__pycache__/
+
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# Mobile generated (per-machine; overlays hold absolute paths)
+build/ios/xcode/overlay.json
+build/ios/xcode/gen/
+build/android/overlay.json
+build/android/gen/

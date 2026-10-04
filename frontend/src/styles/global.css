@@ -1,0 +1,107 @@
+/* naive-ui 自带 CSS-in-JS，不需要单独引样式文件；这里只管应用自己的骨架与配色。 */
+
+:root {
+	--gx-bg: #f7f8fa;
+	--gx-surface: #ffffff;
+	--gx-surface-hover: rgba(0, 0, 0, 0.045);
+	--gx-border: rgba(0, 0, 0, 0.09);
+	--gx-text: #1f2225;
+	--gx-text-muted: #8a8f99;
+	--gx-accent: #2080f0;
+	--gx-accent-soft: rgba(32, 128, 240, 0.12);
+	--gx-danger: #d03050;
+	--gx-clock-running: #1f2225;
+	--gx-clock-paused: #f0a020;
+	--gx-clock-idle: #b6bac2;
+}
+
+.theme-dark {
+	--gx-bg: #101014;
+	--gx-surface: #18181c;
+	--gx-surface-hover: rgba(255, 255, 255, 0.07);
+	--gx-border: rgba(255, 255, 255, 0.12);
+	--gx-text: #e8e8ec;
+	--gx-text-muted: #8f8f99;
+	--gx-accent: #70c0e8;
+	--gx-accent-soft: rgba(112, 192, 232, 0.16);
+	--gx-danger: #e88080;
+	--gx-clock-running: #f2f2f5;
+	--gx-clock-paused: #f2c97d;
+	--gx-clock-idle: #55565c;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+}
+
+/*
+ * NConfigProvider 会渲染一层真实的 div，它是 #app 和 .shell 之间的一层。
+ * 不给它高度的话，下面 .shell 的 height: 100% 会因为父级高度是 auto 而失效
+ * （百分比高度遇到 auto 高度的父级会退化成 auto），后果是侧边栏不满高、
+ * .content 的 overflow-y 也不生效，整页被内容撑开。
+ */
+.app-root {
+	height: 100%;
+}
+
+body {
+	/* 窗口最小 400x600，任何一处溢出都会变成横向滚动条，这里直接掐掉。 */
+	overflow: hidden;
+	background: var(--gx-bg);
+	color: var(--gx-text);
+	font-family: "Inter", "Segoe UI", "Microsoft YaHei", system-ui, -apple-system,
+		"Helvetica Neue", Arial, sans-serif;
+	font-size: 14px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+#app {
+	min-width: 0;
+}
+
+/* 桌面应用里页面级选中文字通常是误操作，只在需要的地方放开。 */
+.shell,
+.content {
+	user-select: none;
+}
+
+input,
+textarea {
+	user-select: text;
+}
+
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+}
+
+:focus-visible {
+	outline: 2px solid var(--gx-accent);
+	outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--gx-border);
+	border-radius: 4px;
+}
