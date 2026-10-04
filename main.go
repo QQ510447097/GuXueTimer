@@ -15,6 +15,15 @@ import (
 	"goxuetimer/internal/apppath"
 )
 
+// appDisplayName 是给用户看的名字：窗口标题、托盘提示、关于页都用它。
+//
+// 注意它同时会成为 Windows 通知的 AppUserModelId —— Wails 用
+// application.Options.Name 作为 AppID 注册到
+// HKCU\Software\Classes\AppUserModelId\ 下。所以这里是整个项目里唯一一处
+// 中文会进入系统标识的地方；冒烟测试用 "systemToast=true" 断言把关，
+// 一旦那条挂了，就把这里退回成 ASCII 的 "GuXueTimer"，其余中文名不受影响。
+const appDisplayName = "孤雪学习计时器"
+
 // Wails 通过 embed 把前端产物打进二进制。
 //
 //go:embed all:frontend/dist
@@ -51,7 +60,7 @@ func main() {
 	}()
 
 	app := application.New(application.Options{
-		Name:        "GoXueTimer",
+		Name:        appDisplayName,
 		Description: "专注学习计时器",
 		Services: []application.Service{
 			application.NewService(NewTimerService(b)),
@@ -86,7 +95,7 @@ func main() {
 	})
 
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "学习计时器",
+		Title:            appDisplayName,
 		Width:            480,
 		Height:           720,
 		MinWidth:         400,
@@ -156,11 +165,8 @@ func (f fanout) Write(p []byte) (int, error) {
 func setupLogging() *os.File {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	dir, err := apppath.DataDir()
+	dir, err := apppath.EnsureDir()
 	if err != nil {
-		return nil
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil
 	}
 	f, err := os.OpenFile(filepath.Join(dir, "app.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)

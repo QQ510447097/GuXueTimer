@@ -3,21 +3,21 @@
 <plist version="1.0">
 	<dict>
 		<key>CFBundleDisplayName</key>
-		<string>GoXueTimer</string>
+		<string>孤雪学习计时器</string>
 		<key>CFBundleExecutable</key>
-		<string>GoXueTimer</string>
+		<string>GuXueTimer</string>
 		<key>CFBundleGetInfoString</key>
 		<string>Go + Wails v3 + Vue 3</string>
 		<key>CFBundleIdentifier</key>
-		<string>com.guxue.goxuetimer</string>
+		<string>com.guduxue.guxuetimer</string>
 		<key>CFBundleName</key>
-		<string>GoXueTimer</string>
+		<string>孤雪学习计时器</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
-		<string>1.0.0</string>
+		<string>2.0.0</string>
 		<key>CFBundleVersion</key>
-		<string>1.0.0</string>
+		<string>2.0.0</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>MinimumOSVersion</key>
@@ -30,7 +30,7 @@
 			<true/>
 		</dict>
 		<key>NSHumanReadableCopyright</key>
-		<string>(c) 2026, GuXue</string>
+		<string>(c) 2026, GuDuXue</string>
 		<key>UILaunchStoryboardName</key>
 		<string>LaunchScreen</string>
 		<key>UIRequiredDeviceCapabilities</key>

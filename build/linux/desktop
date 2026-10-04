@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
-Name=GoXueTimer
-Comment=专注学习计时器
+Name=孤雪学习计时器
+Comment=孤雪学习计时器 —— 专注计时与学习记录
 # The Exec line includes %u to pass the URL to the application
-Exec=/usr/local/bin/GoXueTimer %u
+Exec=/usr/local/bin/GuXueTimer %u
 Terminal=false
 Type=Application
-Icon=GoXueTimer
+Icon=GuXueTimer
 Categories=Utility;
-StartupWMClass=GoXueTimer
+StartupWMClass=GuXueTimer
 
  

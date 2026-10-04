@@ -48,7 +48,8 @@ func (n *notifierService) ServiceShutdown() error {
 }
 
 // ServiceName 让 Wails 的日志用这个名字而不是类型名。
-func (n *notifierService) ServiceName() string { return "GoXueTimerNotifications" }
+// 刻意用 ASCII：它只进日志，没必要把中文带到日志与注册表相关的路径上。
+func (n *notifierService) ServiceName() string { return "GuXueTimerNotifications" }
 
 // Available 报告系统通知是否可用，界面据此决定要不要提示用户。
 func (n *notifierService) Available() bool { return n.ready.Load() }

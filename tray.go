@@ -29,7 +29,7 @@ func newTrayController(app *application.App, b *backend, icon []byte) *trayContr
 
 	tray := app.SystemTray.New()
 	tray.SetIcon(icon)
-	tray.SetTooltip("GoXueTimer")
+	tray.SetTooltip(appDisplayName)
 	// 左键：把主窗口叫回前台。
 	tray.OnClick(b.showMainWindow)
 	// 不用 SetTemplateIcon：它在 Windows 上是空实现。
@@ -71,7 +71,7 @@ func (t *trayController) update(dto TimerStateDTO) {
 	total := dto.TodayTotalSec + dto.CurrentSec
 	label := "今日累计 " + formatDurationCN(total)
 	t.statusItem.SetLabel(label)
-	t.tray.SetTooltip("GoXueTimer · " + label)
+	t.tray.SetTooltip(appDisplayName + " · " + label)
 
 	running := dto.State == string(timer.StateRunning)
 	idle := dto.State == string(timer.StateIdle)

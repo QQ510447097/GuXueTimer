@@ -3,26 +3,26 @@
 #
 # The lines below are called `modelines`. See `:help modeline`
 
-name: "GoXueTimer"
+name: "GuXueTimer"
 arch: ${GOARCH}
 platform: "linux"
-version: "1.0.0"
+version: "2.0.0"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "专注学习计时器"
-vendor: "GuXue"
+description: "孤雪学习计时器 —— 专注计时与学习记录"
+vendor: "GuDuXue"
 homepage: "https://wails.io"
 license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/GoXueTimer"
-    dst: "/usr/local/bin/GoXueTimer"
+  - src: "./bin/GuXueTimer"
+    dst: "/usr/local/bin/GuXueTimer"
   - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/GoXueTimer.png"
-  - src: "./build/linux/GoXueTimer.desktop"
-    dst: "/usr/share/applications/GoXueTimer.desktop"
+    dst: "/usr/share/icons/hicolor/128x128/apps/GuXueTimer.png"
+  - src: "./build/linux/GuXueTimer.desktop"
+    dst: "/usr/share/applications/GuXueTimer.desktop"
 
 # Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
 depends:

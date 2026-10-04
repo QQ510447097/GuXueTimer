@@ -7,13 +7,13 @@ version: '3'
 # 改动这里之后要跑 `wails3 task common:update:build-assets` 才会写进
 # build/windows/info.json 与 .syso（即 exe 的版本信息与清单）。
 info:
-  companyName: "GuXue"
-  productName: "GoXueTimer"
-  productIdentifier: "com.guxue.goxuetimer"
-  description: "专注学习计时器"
-  copyright: "(c) 2026, GuXue"
+  companyName: "GuDuXue"
+  productName: "孤雪学习计时器"
+  productIdentifier: "com.guduxue.guxuetimer"
+  description: "孤雪学习计时器 —— 专注计时与学习记录"
+  copyright: "(c) 2026, GuDuXue"
   comments: "Go + Wails v3 + Vue 3"
-  version: "1.0.0"
+  version: "2.0.0"
 
 # iOS build configuration (uncomment to customise iOS project generation)
 # Note: Keys under `ios` OVERRIDE values under `info` when set.

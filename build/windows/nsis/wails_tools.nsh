@@ -5,19 +5,19 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "GoXueTimer"
+    !define INFO_PROJECTNAME "GuXueTimer"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "GuXue"
+    !define INFO_COMPANYNAME "GuDuXue"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "GoXueTimer"
+    !define INFO_PRODUCTNAME "孤雪学习计时器"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.0.0"
+    !define INFO_PRODUCTVERSION "2.0.0"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "(c) 2026, GuXue"
+    !define INFO_COPYRIGHT "(c) 2026, GuDuXue"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"

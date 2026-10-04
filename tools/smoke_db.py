@@ -34,6 +34,10 @@ def inspect(db_path: str) -> int:
         row = conn.execute("SELECT state FROM timer_state WHERE id = 1").fetchone()
         print(f"timer_state={row[0] if row else ''}")
 
+        # 心跳有没有在跑，看这个数字有没有涨就知道。
+        acc = conn.execute("SELECT accumulated_sec FROM timer_state WHERE id = 1").fetchone()
+        print(f"timer_accumulated_sec={acc[0] if acc else ''}")
+
         print(f"sessions={conn.execute('SELECT COUNT(*) FROM sessions').fetchone()[0]}")
     finally:
         conn.close()
@@ -46,17 +50,6 @@ def _upsert_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, value),
     )
-
-
-def disable_minimize_to_tray(db_path: str) -> int:
-    conn = sqlite3.connect(db_path)
-    try:
-        _upsert_setting(conn, "minimizeToTray", "false")
-        conn.commit()
-        print("minimizeToTray=false")
-    finally:
-        conn.close()
-    return 0
 
 
 def seed_running(db_path: str, interval_min: int) -> int:
@@ -88,9 +81,31 @@ def seed_running(db_path: str, interval_min: int) -> int:
     return 0
 
 
+def set_setting(db_path: str, key: str, value: str) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        _upsert_setting(conn, key, value)
+        conn.commit()
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        print(f"{key}={row[0] if row else ''}")
+    finally:
+        conn.close()
+    return 0
+
+
+def get_setting(db_path: str, key: str) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        print(f"{key}={row[0] if row else ''}")
+    finally:
+        conn.close()
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("usage: smoke_db.py <--check|inspect|disable-minimize-to-tray|"
+        print("usage: smoke_db.py <--check|inspect|set-setting|get-setting|"
               "seed-running> [db] [args]", file=sys.stderr)
         return 2
 
@@ -106,8 +121,16 @@ def main(argv: list[str]) -> int:
 
     if command == "inspect":
         return inspect(argv[2])
-    if command == "disable-minimize-to-tray":
-        return disable_minimize_to_tray(argv[2])
+    if command == "set-setting":
+        if len(argv) < 5:
+            print("set-setting needs <db> <key> <value>", file=sys.stderr)
+            return 2
+        return set_setting(argv[2], argv[3], argv[4])
+    if command == "get-setting":
+        if len(argv) < 4:
+            print("get-setting needs <db> <key>", file=sys.stderr)
+            return 2
+        return get_setting(argv[2], argv[3])
     if command == "seed-running":
         interval = int(argv[3]) if len(argv) > 3 else 1
         return seed_running(argv[2], interval)
