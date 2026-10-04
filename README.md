@@ -77,6 +77,9 @@ wails3 build                        # 产出 bin/GuXueTimer.exe
 1. **PowerShell 的执行策略会挡住脚本**。直接敲 `npm install` 会报"禁止运行脚本"，
    `tools/` 下的 `.ps1` 也一样。前者走 `cmd /c "npm install"`（`wails3 build` / `wails3 dev`
    内部的任务自己用 cmd 执行，不受影响）；后者加 `-ExecutionPolicy Bypass`。
+   另外 `frontend/.npmrc` 里的 `minimum-release-age` 会让 npm 每次都打一条
+   "Unknown project config" 警告——那是给 pnpm/bun 用的供应链设置，npm 自己不支持，
+   警告是预期的、可以忽略（留着是为了将来换包管理器时自动生效）。
 2. **`go build ./...` 会失败**，报 `build/ios` 没有 `main` 函数。那是 Wails 模板
    生成的 iOS 交叉编译辅助包（`//go:build !ios` 的 `package main`，设计上要和主包
    一起链接），不是本项目的问题。用 `go build .`。
