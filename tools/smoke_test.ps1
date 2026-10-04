@@ -61,11 +61,18 @@ function Get-AppProcess {
     Get-Process -Name $processName -ErrorAction SilentlyContinue
 }
 
+# 结束应用。多次重试：窗口隐藏到托盘之后，进程退出可能还要抢一下 SQLite 的文件句柄。
+# 调用方在收尾处必须自己断言没有残留——残留进程会一直占着 timer.db。
 function Stop-App {
-    Get-AppProcess | ForEach-Object {
-        try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch { }
+    param([int]$Attempts = 3)
+    for ($i = 1; $i -le $Attempts; $i++) {
+        $procs = @(Get-AppProcess)
+        if ($procs.Count -eq 0) { return }
+        foreach ($p in $procs) {
+            try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { }
+        }
+        Start-Sleep -Milliseconds 700
     }
-    Start-Sleep -Milliseconds 800
 }
 
 function Start-App {
@@ -135,6 +142,13 @@ if (-not (Test-Path $exe)) {
     exit 2
 }
 
+# 先结束上一轮可能残留的进程，再动数据目录。
+#
+# 顺序不能反：残留进程占着 timer.db 时，下面那个删除会静默失败，于是上一轮的
+# 设置（比如 minimizeToTray=false）会渗进这一轮，后面场景就得出莫名其妙的结论。
+$script:python = Find-Python
+Stop-App
+
 if ((Test-Path $dataDir) -and (Get-ChildItem -Force $dataDir | Measure-Object).Count -gt 0) {
     if (-not $Force) {
         Write-Host "数据目录已有内容：$dataDir" -ForegroundColor Yellow
@@ -142,11 +156,17 @@ if ((Test-Path $dataDir) -and (Get-ChildItem -Force $dataDir | Measure-Object).C
         exit 2
     }
     Write-Host "清空数据目录（-Force）：$dataDir" -ForegroundColor Yellow
-    Remove-Item -Recurse -Force $dataDir
+    for ($i = 1; $i -le 5; $i++) {
+        Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue
+        if (-not (Test-Path $dataDir)) { break }
+        Start-Sleep -Milliseconds 600
+    }
+    if (Test-Path $dataDir) {
+        Write-Host "数据目录删不掉，多半还有进程占着：$dataDir" -ForegroundColor Red
+        Write-Host "先手工结束 GoXueTimer 进程再重跑。" -ForegroundColor Red
+        exit 2
+    }
 }
-
-$script:python = Find-Python
-Stop-App
 
 # ---------------------------------------------------------------- 1. 启动与桥接
 
@@ -270,6 +290,7 @@ if ($script:python) {
 }
 
 Stop-App
+Assert-That ((@(Get-AppProcess)).Count -eq 0) '收尾时没有残留进程（残留会占住 timer.db）'
 
 Write-Host "`n测试数据留在：$dataDir" -ForegroundColor DarkGray
 
