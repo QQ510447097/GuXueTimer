@@ -188,7 +188,26 @@ func (b *backend) updateSettings(next settings.Settings) error {
 	b.settings = next
 	b.settingsMu.Unlock()
 	b.reminder.Configure(next.BreakReminderEnabled, next.Interval())
+	b.syncWindowBackground(next)
 	return nil
+}
+
+// syncWindowBackground 让原生窗口底色跟上主题。
+//
+// 为什么需要：调整窗口大小时，新露出来的那块会先显示原生底色、等 WebView 重绘
+// 才被盖住。底色和主题不一致时，暗色主题下拖窗口会闪白。
+//
+// "跟随系统"在这里只能用浅色底：原生层拿不到前端 matchMedia 的结果。
+// 浅色是本应用的默认外观，赌它命中率最高；影响也只限于拖拽的那一瞬。
+func (b *backend) syncWindowBackground(s settings.Settings) {
+	if b.window == nil {
+		return
+	}
+	if s.Theme == settings.ThemeDark {
+		b.window.SetBackgroundColour(application.NewRGB(10, 18, 32))
+		return
+	}
+	b.window.SetBackgroundColour(application.NewRGB(238, 244, 255))
 }
 
 // noteFrontendConnected 记录前端第一次成功调用后端。
@@ -341,6 +360,9 @@ func (b *backend) attach(app *application.App, window *application.WebviewWindow
 	b.app = app
 	b.window = window
 	b.tray = tray
+
+	// 窗口创建时用的底色只是初值，这里按落库的设置再校一次。
+	b.syncWindowBackground(b.Settings())
 
 	// 回调必须在 Run 之前注册好，Recover 才能把提示投递出去。
 	b.timer.OnStateChange(func(snap timer.Snapshot) {

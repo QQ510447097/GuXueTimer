@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"goxuetimer/internal/apppath"
+	"goxuetimer/internal/settings"
 )
 
 // appDisplayName 是给用户看的名字：窗口标题、托盘提示、关于页都用它。
@@ -78,6 +80,7 @@ func main() {
 		Windows: application.WindowsOptions{
 			// 关窗只是隐藏到托盘，不能因为"最后一个窗口关了"就退出进程。
 			DisableQuitOnLastWindowClosed: true,
+			AdditionalBrowserArgs:         debugBrowserArgs(),
 		},
 		ShouldQuit: func() bool {
 			// 只有托盘「退出」置位后才放行；否则拦掉一切退出请求。
@@ -98,13 +101,19 @@ func main() {
 
 	// 窗口尺寸：记录页要同时放柱状图、月历热力图和当日列表，480 宽不够用。
 	cfg := b.Settings()
+	// 原生底色取当前主题的底色，避免启动瞬间闪一下另一种颜色。
+	// "跟随系统"在这里按浅色处理，理由见 backend.syncWindowBackground。
+	backdrop := application.NewRGB(238, 244, 255)
+	if cfg.Theme == settings.ThemeDark {
+		backdrop = application.NewRGB(10, 18, 32)
+	}
 	windowOpts := application.WebviewWindowOptions{
 		Title:            appDisplayName,
 		Width:            680,
 		Height:           820,
 		MinWidth:         560,
 		MinHeight:        680,
-		BackgroundColour: application.NewRGB(238, 244, 255),
+		BackgroundColour: backdrop,
 		URL:              "/",
 	}
 	// 窗口级毛玻璃：让桌面透出来并模糊。需要重建窗口才生效，所以是"改了要重启"。
@@ -158,6 +167,20 @@ func main() {
 	if err := app.Run(); err != nil {
 		fatal("运行失败", err)
 	}
+}
+
+// debugBrowserArgs 在设置了 GX_DEBUG_PORT 时给 WebView2 开远程调试端口。
+//
+// 只为开发期一件具体的事存在：用 CDP 驱动界面截图并断言布局。
+// "这个界面到底长什么样"靠读代码是判断不出来的，唯一可靠的办法是让渲染进程
+// 自己吐一张图出来。不设这个环境变量时返回 nil，发布构建的行为完全不受影响。
+func debugBrowserArgs() []string {
+	port := strings.TrimSpace(os.Getenv("GX_DEBUG_PORT"))
+	if port == "" {
+		return nil
+	}
+	slog.Info("已开启 WebView2 远程调试端口", "port", port)
+	return []string{"--remote-debugging-port=" + port}
 }
 
 // fanout 把同一份日志写给多个 sink，每个 sink 的失败都单独忽略。

@@ -1,21 +1,28 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { NButton, NIcon, NProgress, NTag, useDialog, useMessage } from "naive-ui";
+import { computed, ref, watch } from "vue";
+import { useDialog, useMessage } from "naive-ui";
+import * as PlansService from "../../bindings/goxuetimer/plansservice";
+import * as RecordsService from "../../bindings/goxuetimer/recordsservice";
 import ClockDisplay from "../components/ClockDisplay.vue";
+import GlassPanel from "../components/GlassPanel.vue";
 import IconDiscard from "../components/IconDiscard.vue";
 import IconPause from "../components/IconPause.vue";
 import IconPlay from "../components/IconPlay.vue";
 import IconStop from "../components/IconStop.vue";
-import { useRecords } from "../composables/useRecords";
+import PlanPicker from "../components/PlanPicker.vue";
+import StatTile from "../components/StatTile.vue";
 import {
+	errText,
 	formatClock,
 	formatCountdownCN,
 	formatDurationCN,
 	formatTodayLabel,
 } from "../composables/format";
+import { usePlans } from "../composables/usePlans";
 import {
 	discardTimer,
 	pauseTimer,
+	pullState,
 	resumeTimer,
 	startTimer,
 	stopTimer,
@@ -23,28 +30,30 @@ import {
 	type TimerState,
 } from "../composables/useTimer";
 
-const { state, now, busy, lastError, elapsedSec, todayTotalSec, breakSec, stateText } = useTimer();
-const { summary, refresh: refreshRecords } = useRecords();
+const { state, now, busy, lastError, elapsedSec, todayTotalSec, breakSec } = useTimer();
+const { activePlans, nameOf, refresh: refreshPlans } = usePlans();
 const dialog = useDialog();
 const message = useMessage();
 
+const switching = ref(false);
+const planTodaySec = ref(0);
+const todayCount = ref(0);
+
+const timerState = computed<TimerState>(() => {
+	const raw = state.value?.state;
+	return raw === "running" || raw === "paused" ? raw : "idle";
+});
+const isIdle = computed(() => timerState.value === "idle");
+const isRunning = computed(() => timerState.value === "running");
+const currentPlanId = computed(() => state.value?.planId ?? 0);
+const planHint = computed(() => (currentPlanId.value ? nameOf(currentPlanId.value) : "未选择计划"));
+
 const clockText = computed(() => formatClock(elapsedSec.value));
 const todayCaption = computed(() => `今日 ${formatTodayLabel(now.value)}`);
-const isIdle = computed(() => (state.value?.state ?? "idle") === "idle");
-const isRunning = computed(() => state.value?.state === "running");
-const isPaused = computed(() => state.value?.state === "paused");
-
-const tagType = computed<"success" | "warning" | "default">(() => {
-	if (isRunning.value) return "success";
-	if (isPaused.value) return "warning";
-	return "default";
-});
-
-const sessionCount = computed(() => summary.value?.count ?? 0);
 
 const primaryLabel = computed(() => {
 	if (isRunning.value) return "暂停";
-	if (isPaused.value) return "继续";
+	if (timerState.value === "paused") return "继续";
 	return "开始学习";
 });
 
@@ -54,8 +63,39 @@ const breakPercent = computed(() => {
 	if (interval <= 0) return 0;
 	return Math.min(100, Math.max(0, (elapsed / interval) * 100));
 });
-const breakRemainSec = computed(() => Math.max(0, breakSec.value.interval - breakSec.value.elapsed));
-const breakRemainText = computed(() => `距下次休息提醒还有 ${formatCountdownCN(breakRemainSec.value)}`);
+const breakRemainSec = computed(() =>
+	Math.max(0, breakSec.value.interval - breakSec.value.elapsed),
+);
+const breakIntervalMin = computed(() => Math.round(breakSec.value.interval / 60));
+
+/**
+ * 「本计划今日」与「今日场次」来自记录接口，不在计时状态里。
+ *
+ * 只在后端状态真的变了（换计划 / 落库时长变化）时才重查：
+ * todayTotalSec 每 250ms 都会因本地时钟推进而变，盯着它会让请求满天飞。
+ * 统计查失败也刻意不弹提示：它是装饰性的，不该打断正在进行的计时。
+ */
+async function loadCounters(): Promise<void> {
+	const planID = currentPlanId.value;
+	try {
+		const [all, own] = await Promise.all([
+			RecordsService.DaySummary("", 0),
+			RecordsService.DaySummary("", planID),
+		]);
+		todayCount.value = all.count;
+		planTodaySec.value = own.totalSec;
+	} catch {
+		/* 忽略：计时页的主指标是时钟，统计失败不该报警 */
+	}
+}
+
+watch(
+	[() => state.value?.planId, () => state.value?.todayTotalSec],
+	() => {
+		void loadCounters();
+	},
+	{ immediate: true },
+);
 
 async function onPrimary(): Promise<void> {
 	if (busy.value) return;
@@ -63,7 +103,7 @@ async function onPrimary(): Promise<void> {
 		await pauseTimer();
 		return;
 	}
-	if (isPaused.value) {
+	if (timerState.value === "paused") {
 		await resumeTimer();
 		return;
 	}
@@ -77,11 +117,11 @@ async function onStop(): Promise<void> {
 	if (result.saved) {
 		message.success(`已保存本次学习 ${formatDurationCN(result.durationSec)}`);
 	} else if (result.reason === "too-short") {
-		message.warning(`时长不足 5 秒，本次未保存（${formatDurationCN(result.durationSec)}）`);
+		message.warning("时长不足 5 秒，本次未保存");
 	} else {
 		message.warning("本次会话已结束，但没有写入记录");
 	}
-	await refreshRecords();
+	void loadCounters();
 }
 
 function onDiscard(): void {
@@ -96,197 +136,227 @@ function onDiscard(): void {
 		},
 	});
 }
+
+async function onSelectPlan(id: number): Promise<void> {
+	if (switching.value || !isIdle.value) return;
+	switching.value = true;
+	try {
+		await PlansService.SetCurrent(id);
+		await refreshPlans();
+		// SetCurrent 会改后端设置里的当前计划，权威状态要重新拉一次。
+		await pullState();
+	} catch (err) {
+		message.error(errText(err));
+	} finally {
+		switching.value = false;
+	}
+}
 </script>
 
 <template>
-	<section class="timer-view">
-		<div class="state-row">
-			<NTag :type="tagType" size="small" round :bordered="false">{{ stateText }}</NTag>
-		</div>
-
-		<ClockDisplay :time="clockText" :state="(state?.state as TimerState) ?? 'idle'"
-			:caption="todayCaption" />
-
-		<div class="actions">
-			<NButton class="action-primary" type="primary" size="large" :disabled="busy" :loading="busy"
-				@click="onPrimary">
-				<template #icon>
-					<NIcon>
-						<IconPause v-if="isRunning" />
-						<IconPlay v-else />
-					</NIcon>
-				</template>
-				{{ primaryLabel }}
-			</NButton>
-
-			<div class="actions-row">
-				<NButton class="action-secondary" size="large" secondary :disabled="busy || isIdle" @click="onStop">
-					<template #icon>
-						<NIcon>
-							<IconStop />
-						</NIcon>
-					</template>
-					结束并保存
-				</NButton>
-				<NButton class="action-secondary" size="large" quaternary type="error" :disabled="busy || isIdle"
-					@click="onDiscard">
-					<template #icon>
-						<NIcon>
-							<IconDiscard />
-						</NIcon>
-					</template>
-					放弃
-				</NButton>
+	<section class="timer-view gx-col">
+		<GlassPanel padding="14px 16px 18px">
+			<!-- 计划选择器并进主面板：它和时钟是同一件事的两半，单独包一层玻璃只会多一个盒子 -->
+			<div class="plan-row">
+				<span class="gx-section-title">当前计划</span>
+				<span class="gx-spacer"></span>
+				<PlanPicker
+					:plans="activePlans"
+					:current-id="currentPlanId"
+					:disabled="!isIdle || switching"
+					:hint="isIdle ? '正在切换…' : '计时中不能切换计划'"
+					@select="onSelectPlan"
+				/>
 			</div>
-		</div>
 
-		<div class="stats">
-			<div class="stat stat-today">
-				<span class="stat-label">今日累计</span>
-				<span class="stat-value">{{ formatDurationCN(todayTotalSec) }}</span>
-			</div>
-			<div class="stat-pair">
-				<div class="stat">
-					<span class="stat-label">本次</span>
-					<span class="stat-value">{{ formatDurationCN(elapsedSec) }}</span>
-				</div>
-				<div class="stat">
-					<span class="stat-label">今日场次</span>
-					<span class="stat-value">{{ sessionCount }} 次</span>
+			<ClockDisplay :time="clockText" :state="timerState" :caption="todayCaption" />
+
+			<div class="actions">
+				<button
+					type="button"
+					class="primary gx-accent-btn gx-pill"
+					:disabled="busy"
+					@click="onPrimary"
+				>
+					<IconPause v-if="isRunning" :size="17" />
+					<IconPlay v-else :size="17" />
+					<span>{{ primaryLabel }}</span>
+				</button>
+
+				<div class="actions-row">
+					<button
+						type="button"
+						class="secondary gx-ghost gx-pill"
+						:disabled="busy || isIdle"
+						@click="onStop"
+					>
+						<IconStop :size="15" />
+						<span>结束并保存</span>
+					</button>
+					<button
+						type="button"
+						class="secondary gx-ghost gx-pill is-danger"
+						:disabled="busy || isIdle"
+						@click="onDiscard"
+					>
+						<IconDiscard :size="15" />
+						<span>放弃</span>
+					</button>
 				</div>
 			</div>
-		</div>
 
-		<div class="reminder">
-			<template v-if="reminderOff">
-				<span class="reminder-off">休息提醒已关闭</span>
-			</template>
-			<template v-else>
+			<p v-if="lastError" class="error">{{ lastError }}</p>
+		</GlassPanel>
+
+		<GlassPanel padding="14px 16px">
+			<div class="tiles">
+				<div class="tile-cell">
+					<StatTile
+						label="今日累计"
+						:value="formatDurationCN(todayTotalSec)"
+						hint="全部计划"
+						accent
+					/>
+				</div>
+				<div class="tile-cell">
+					<StatTile
+						label="本计划今日"
+						:value="formatDurationCN(planTodaySec)"
+						:hint="planHint"
+					/>
+				</div>
+				<div class="tile-cell">
+					<StatTile label="今日场次" :value="`${todayCount} 次`" hint="全部计划" />
+				</div>
+			</div>
+		</GlassPanel>
+
+		<GlassPanel padding="12px 16px">
+			<p v-if="reminderOff" class="reminder-off gx-muted">休息提醒已关闭</p>
+			<div v-else class="reminder">
 				<div class="reminder-head">
-					<span>{{ breakRemainText }}</span>
-					<span class="reminder-interval">间隔 {{ breakSec.interval / 60 }} 分钟</span>
+					<span>距下次休息提醒还有 {{ formatCountdownCN(breakRemainSec) }}</span>
+					<span class="gx-faint gx-tabular">间隔 {{ breakIntervalMin }} 分钟</span>
 				</div>
-				<NProgress class="reminder-bar" type="line" :percentage="breakPercent" :height="6"
-					:show-indicator="false" :border-radius="3" />
-			</template>
-		</div>
-
-		<p v-if="lastError" class="error-text">{{ lastError }}</p>
+				<div class="track">
+					<div class="fill" :style="{ width: `${breakPercent}%` }"></div>
+				</div>
+			</div>
+		</GlassPanel>
 	</section>
 </template>
 
 <style scoped>
 .timer-view {
-	display: flex;
-	flex-direction: column;
-	gap: 18px;
+	gap: var(--gx-gap);
 }
 
-.state-row {
+.plan-row {
 	display: flex;
-	justify-content: center;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+	padding-bottom: 12px;
+	margin-bottom: 6px;
+	border-bottom: 1px solid var(--gx-line);
 }
 
 .actions {
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
+	gap: 9px;
+	margin-top: 16px;
 }
 
-.action-primary {
+.primary,
+.secondary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	font-family: inherit;
+	cursor: pointer;
+}
+
+.primary {
 	width: 100%;
+	padding: 12px 18px;
+	font-size: 15.5px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.primary:disabled {
+	cursor: not-allowed;
 }
 
 .actions-row {
 	display: flex;
-	gap: 10px;
+	gap: 9px;
 }
 
-.action-secondary {
+.secondary {
 	flex: 1 1 0;
 	min-width: 0;
+	padding: 9px 10px;
+	font-size: 13px;
 }
 
-.stats {
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-	padding: 14px 16px;
-	border-radius: 12px;
-	background: var(--gx-surface);
-	border: 1px solid var(--gx-border);
+.secondary:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
-.stat {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	min-width: 0;
+.secondary.is-danger:hover:not(:disabled) {
+	color: var(--gx-danger);
+	border-color: var(--gx-danger);
 }
 
-.stat-today .stat-value {
-	font-size: 26px;
-	font-weight: 650;
-	line-height: 1.2;
+.error {
+	margin-top: 10px;
+	font-size: 12.5px;
+	color: var(--gx-danger);
 }
 
-.stat-label {
-	font-size: 12px;
-	color: var(--gx-text-muted);
-}
-
-.stat-value {
-	font-variant-numeric: tabular-nums;
-}
-
-.stat-pair {
+.tiles {
 	display: flex;
 	gap: 12px;
 }
 
-.stat-pair .stat {
+.tile-cell {
 	flex: 1 1 0;
-}
-
-.stat-pair .stat-value {
-	font-size: 16px;
-	font-weight: 600;
+	min-width: 0;
 }
 
 .reminder {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
-	padding: 12px 14px;
-	border-radius: 12px;
-	background: var(--gx-surface);
-	border: 1px solid var(--gx-border);
-}
-
-.reminder-off {
-	font-size: 13px;
-	color: var(--gx-text-muted);
 }
 
 .reminder-head {
 	display: flex;
+	align-items: baseline;
 	justify-content: space-between;
 	gap: 10px;
 	font-size: 13px;
 }
 
-.reminder-interval {
-	color: var(--gx-text-muted);
-	white-space: nowrap;
-}
-
-.reminder-bar {
-	width: 100%;
-}
-
-.error-text {
-	margin: 0;
+.reminder-off {
 	font-size: 13px;
-	color: var(--gx-danger, #d03050);
+}
+
+.track {
+	height: 6px;
+	border-radius: var(--gx-r-pill);
+	background: var(--gx-track);
+	overflow: hidden;
+}
+
+.fill {
+	height: 100%;
+	border-radius: var(--gx-r-pill);
+	background: var(--gx-accent-grad);
+	transition: width var(--gx-dur) linear;
 }
 </style>

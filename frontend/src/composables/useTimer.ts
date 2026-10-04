@@ -1,18 +1,18 @@
 import { computed, readonly, ref, type Ref } from "vue";
 import { Events } from "@wailsio/runtime";
 import * as TimerService from "../../bindings/goxuetimer/timerservice";
-import type { TimerStateDTO, StopResultDTO } from "../../bindings/goxuetimer/models";
+import type { StopResultDTO, TimerStateDTO } from "../../bindings/goxuetimer/models";
 import { errText } from "./format";
 import { refreshRecords } from "./useRecords";
+import { refreshStats } from "./useStats";
+
+/**
+ * 计时状态是模块级单例：三个视图拿到的是同一份数据，事件也只在模块作用域订阅一次。
+ */
 
 export type TimerState = "idle" | "running" | "paused";
 
-/**
- * 时钟与提醒进度都靠这里的 now 平滑推进。
- *
- * 后端心跳是 30 秒一次，直接用它驱动界面会让秒数一顿一顿；250ms 既够顺滑，
- * 又不会像 rAF 那样在后台窗口空转。
- */
+/** 时钟与提醒进度都靠这里的 now 平滑推进。 */
 const clockTickMs = 250;
 
 const state = ref<TimerStateDTO | null>(null);
@@ -34,6 +34,7 @@ function runningDeltaSec(anchor: string, stamp: number): number {
 	if (!anchor) return 0;
 	const parsed = Date.parse(anchor);
 	if (Number.isNaN(parsed)) return 0;
+	// 系统时间被往回调时 delta 为负，直接当作 0，免得时钟倒退或进度条回卷。
 	const delta = (stamp - parsed) / 1000;
 	return delta > 0 ? delta : 0;
 }
@@ -86,20 +87,20 @@ export function discardTimer(): Promise<void> {
 	return run(() => TimerService.Discard());
 }
 
-/**
- * 计时状态是模块级单例：三个视图拿到的是同一份数据，事件也只在模块作用域订阅一次。
- */
 export function useTimer() {
 	if (!subscribed) {
 		subscribed = true;
 
+		// 后端每次状态迁移与 30 秒心跳都会发这个事件，永远以它为准覆盖本地状态。
 		Events.On("timer:state", (ev) => {
 			applyState(ev.data as TimerStateDTO);
 		});
 
 		Events.On("records:changed", () => {
 			void refreshRecords();
-			// 记录落库后「今日已落库时长」也变了，顺手拉一次权威状态。
+			// 落库/删除都会改变区间统计与月历，图表也要跟着重算。
+			void refreshStats();
+			// 「今日已落库时长」也变了，顺手拉一次权威状态。
 			void pullState();
 		});
 	}
@@ -107,6 +108,10 @@ export function useTimer() {
 	if (!initialized) {
 		initialized = true;
 		if (ticker === null) {
+			/*
+			 * 后端心跳 30 秒一次，直接用它驱动界面会让秒数一顿一顿；
+			 * 250ms 既够顺滑，又不会像 rAF 那样在后台窗口空转。
+			 */
 			ticker = setInterval(() => {
 				now.value = Date.now();
 			}, clockTickMs);
@@ -168,3 +173,6 @@ export function useTimer() {
 		stateText,
 	};
 }
+
+// 时钟文案统一由 format.ts 提供；这里转出一次，免得调用方多 import 一个模块。
+export { formatClock } from "./format";

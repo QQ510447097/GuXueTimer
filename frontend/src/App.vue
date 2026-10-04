@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineComponent, markRaw, onBeforeUnmount, onMounted, ref, type Component } from "vue";
+import { computed, defineComponent, markRaw, onBeforeUnmount, onMounted, ref, watchEffect, type Component } from "vue";
 import { Events } from "@wailsio/runtime";
 import {
 	NConfigProvider,
@@ -11,13 +11,20 @@ import {
 	useNotification,
 } from "naive-ui";
 import type { NoticeDTO, ReminderEventDTO } from "../bindings/goxuetimer/models";
+import IconCalendar from "./components/IconCalendar.vue";
+import IconPlan from "./components/IconPlan.vue";
+import IconPlay from "./components/IconPlay.vue";
+import IconSettings from "./components/IconSettings.vue";
+import NavRail, { type NavItem } from "./components/NavRail.vue";
+import { useHotkeys } from "./composables/useHotkeys";
+import { usePlans } from "./composables/usePlans";
+import { useSettings } from "./composables/useSettings";
+import { pauseTimer, pullState, resumeTimer, startTimer, useTimer } from "./composables/useTimer";
+import OnboardingView from "./views/OnboardingView.vue";
+import PlansView from "./views/PlansView.vue";
 import RecordsView from "./views/RecordsView.vue";
 import SettingsView from "./views/SettingsView.vue";
 import TimerView from "./views/TimerView.vue";
-import { useSettings } from "./composables/useSettings";
-import { useTimer } from "./composables/useTimer";
-
-type NavKey = "timer" | "records" | "settings";
 
 /**
  * 事件桥必须是 provider 的子组件：useMessage / useNotification 取的是祖先注入，
@@ -64,64 +71,98 @@ const NoticeBridge = defineComponent({
 	},
 });
 
-const { naiveTheme, themeClass } = useSettings();
-// 计时单例在这里初始化：事件订阅与本地时钟只做一次，切视图不会重复注册。
-const { state, stateText } = useTimer();
+const { naiveTheme, themeOverrides, isDark, load: loadSettings } = useSettings();
+const { activePlans, loaded: plansLoaded } = usePlans();
+const { state } = useTimer();
+void loadSettings();
 
-const active = ref<NavKey>("timer");
+// 深色切换挂到 <html> 上而不是组件根节点：CSS 变量定义在 :root，
+// 只有挂在 html 上，body 底色和 naive-ui 的浮层才会一起跟着换。
+watchEffect(() => {
+	const root = document.documentElement;
+	root.classList.toggle("theme-dark", isDark.value);
+});
 
-// markRaw：组件对象不需要响应式代理，包一层只会白费开销。
-const views: Record<NavKey, Component> = {
+const navItems: NavItem[] = [
+	{ key: "timer", label: "计时", icon: markRaw(IconPlay) },
+	{ key: "records", label: "记录", icon: markRaw(IconCalendar) },
+	{ key: "plans", label: "计划", icon: markRaw(IconPlan) },
+	{ key: "settings", label: "设置", icon: markRaw(IconSettings) },
+];
+
+const views: Record<string, Component> = {
 	timer: markRaw(TimerView),
 	records: markRaw(RecordsView),
+	plans: markRaw(PlansView),
 	settings: markRaw(SettingsView),
 };
 
-const navItems: { key: NavKey; label: string }[] = [
-	{ key: "timer", label: "计时" },
-	{ key: "records", label: "记录" },
-	{ key: "settings", label: "设置" },
-];
+const VIEW_STORAGE_KEY = "gx.activeView";
 
-const currentView = computed(() => views[active.value]);
+function restoreView(): string {
+	const saved = localStorage.getItem(VIEW_STORAGE_KEY) ?? "";
+	return saved in views ? saved : "timer";
+}
 
-const stateDotClass = computed(() => {
-	switch (state.value?.state) {
-		case "running":
-			return "dot is-running";
-		case "paused":
-			return "dot is-paused";
-		default:
-			return "dot is-idle";
-	}
+const active = ref(restoreView());
+const currentView = computed(() => views[active.value] ?? views.timer);
+
+function selectView(key: string): void {
+	if (!(key in views)) return;
+	active.value = key;
+	localStorage.setItem(VIEW_STORAGE_KEY, key);
+}
+
+// 键盘 1-4 切视图，空格开始/暂停。桌面工具该有，也让截图脚本多一条降级路径。
+useHotkeys({
+	onView: (index) => {
+		const item = navItems[index];
+		if (item) selectView(item.key);
+	},
+	onToggleTimer: () => {
+		// 空格只在计时页生效。全局绑定的后果是：用户在记录页翻图表时误按一下空格，
+		// 就会悄悄开始一次计时（实测确实踩到过——数据库里多出一条 paused 状态）。
+		// 开始计时是有副作用的动作，不该在任何一屏都能被误触。
+		if (active.value !== "timer") return;
+		const s = state.value?.state ?? "idle";
+		if (s === "running") void pauseTimer();
+		else if (s === "paused") void resumeTimer();
+		else void startTimer();
+	},
+});
+
+// 还没有任何在用的计划时，整个外壳换成引导页：先建计划，才谈得上计时。
+const needsOnboarding = computed(() => plansLoaded.value && activePlans.value.length === 0);
+
+onMounted(() => {
+	void pullState();
 });
 </script>
 
 <template>
-	<NConfigProvider :theme="naiveTheme" class="app-root" :class="themeClass">
+	<NConfigProvider class="app-root" :theme="naiveTheme" :theme-overrides="themeOverrides">
 		<NGlobalStyle />
 		<NMessageProvider placement="top">
 			<NDialogProvider>
 				<NNotificationProvider placement="bottom-right" :max="3">
 					<NoticeBridge />
-					<div class="shell">
-						<aside class="sidebar">
-							<div class="brand">
-								<span class="brand-mark">古</span>
-								<span class="brand-name">古学计时</span>
-							</div>
-							<nav class="nav">
-								<button v-for="item in navItems" :key="item.key" type="button" class="nav-item"
-									:class="{ 'is-active': active === item.key }" @click="active = item.key">
-									{{ item.label }}
-								</button>
-							</nav>
-							<div class="sidebar-foot">
-								<span :class="stateDotClass" aria-hidden="true"></span>
-								<span class="foot-text">{{ stateText }}</span>
-							</div>
-						</aside>
-						<main class="content">
+
+					<!-- 背景层：渐变 + 三处色斑 + 极淡噪点。
+					     玻璃面板的 backdrop-filter 就靠它才有东西可模糊：纯渐变是低频信号，
+					     模糊了也看不出来，噪点提供了高频细节。 -->
+					<div class="gx-backdrop" aria-hidden="true">
+						<span class="blob blob-1"></span>
+						<span class="blob blob-2"></span>
+						<span class="blob blob-3"></span>
+						<span class="blob blob-4"></span>
+						<span class="gx-grain"></span>
+					</div>
+
+					<OnboardingView v-if="needsOnboarding" />
+
+					<div v-else class="shell">
+						<NavRail :items="navItems" :active="active" @select="selectView" />
+						<main class="content gx-scroll">
 							<component :is="currentView" />
 						</main>
 					</div>
@@ -132,122 +173,69 @@ const stateDotClass = computed(() => {
 </template>
 
 <style scoped>
+.gx-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 0;
+	overflow: hidden;
+	background: var(--gx-bg-gradient);
+	pointer-events: none;
+}
+
+.blob {
+	position: absolute;
+	border-radius: 50%;
+	/* 40px 而不是 60px：色斑保留一点边界，玻璃面板压在上面时才看得出"糊了一下" */
+	filter: blur(40px);
+}
+
+/* 四处色斑的位置经过挑选：左上最亮、右上偏青、右下偏靛、左下补一点绿松，
+   内容区四角都有色彩变化，不至于整片灰白。 */
+.blob-1 {
+	top: -16%;
+	left: -12%;
+	width: 58%;
+	height: 48%;
+	background: var(--gx-blob-1);
+}
+
+.blob-2 {
+	top: 2%;
+	right: -18%;
+	width: 50%;
+	height: 44%;
+	background: var(--gx-blob-2);
+}
+
+.blob-3 {
+	bottom: -22%;
+	left: 22%;
+	width: 56%;
+	height: 46%;
+	background: var(--gx-blob-3);
+}
+
+.blob-4 {
+	bottom: -14%;
+	right: -14%;
+	width: 46%;
+	height: 40%;
+	background: var(--gx-blob-4);
+}
+
 .shell {
+	position: relative;
+	z-index: 1;
 	display: flex;
 	width: 100%;
 	height: 100%;
 	min-height: 0;
-	background: var(--gx-bg);
-}
-
-.sidebar {
-	flex: 0 0 88px;
-	display: flex;
-	flex-direction: column;
-	justify-content: space-between;
-	gap: 12px;
-	padding: 14px 8px 12px;
-	background: var(--gx-surface);
-	border-right: 1px solid var(--gx-border);
-}
-
-.brand {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 4px;
-}
-
-.brand-mark {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 30px;
-	height: 30px;
-	border-radius: 9px;
-	background: var(--gx-accent-soft);
-	color: var(--gx-accent);
-	font-size: 16px;
-	font-weight: 700;
-}
-
-.brand-name {
-	font-size: 11px;
-	color: var(--gx-text-muted);
-	letter-spacing: 0.04em;
-}
-
-.nav {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	flex: 1 1 auto;
-}
-
-.nav-item {
-	appearance: none;
-	border: none;
-	background: transparent;
-	color: var(--gx-text-muted);
-	font-size: 13px;
-	font-family: inherit;
-	padding: 9px 0;
-	border-radius: 8px;
-	cursor: pointer;
-	transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.nav-item:hover {
-	background: var(--gx-surface-hover);
-	color: var(--gx-text);
-}
-
-.nav-item.is-active {
-	background: var(--gx-accent-soft);
-	color: var(--gx-accent);
-	font-weight: 600;
-}
-
-.sidebar-foot {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 4px;
-}
-
-.foot-text {
-	font-size: 11px;
-	color: var(--gx-text-muted);
-}
-
-.dot {
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-	background: var(--gx-text-muted);
-}
-
-.dot.is-running {
-	background: #18a058;
-	box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.18);
-}
-
-.dot.is-paused {
-	background: #f0a020;
-	box-shadow: 0 0 0 3px rgba(240, 160, 32, 0.18);
-}
-
-.dot.is-idle {
-	background: var(--gx-text-muted);
-	opacity: 0.5;
 }
 
 .content {
 	flex: 1 1 auto;
 	min-width: 0;
 	min-height: 0;
-	overflow-y: auto;
-	overflow-x: hidden;
-	padding: 16px 14px 18px;
+	padding: 16px 18px 20px;
 }
 </style>

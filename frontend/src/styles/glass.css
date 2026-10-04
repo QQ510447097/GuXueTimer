@@ -1,0 +1,178 @@
+/*
+ * 玻璃质感的原子类。
+ *
+ * 只有两件事在这里定义：怎么"看起来像玻璃"，以及一组通用的小工具类。
+ * 具体的排版留给各个组件，免得这里变成一个大杂烩。
+ *
+ * 关于 backdrop-filter：它模糊的是元素**背后**已经画出来的内容，
+ * 所以必须有东西在背后——那就是 App.vue 里的 .gx-backdrop（渐变 + 三处色斑）。
+ * 少了那层，玻璃会退化成"半透明的白块"。
+ */
+
+/*
+ * 噪点纹理（磨砂感）。
+ *
+ * 为什么需要它：backdrop-filter 模糊的是背后的内容，而纯渐变属于低频信号——
+ * 在平滑渐变上做模糊，肉眼和"只是半透明"几乎没有区别（这一点是在真实 WebView2 里
+ * 注入对照面板截图确认过的）。铺一层极淡的高频噪点，模糊才有东西可糊，
+ * 面板边缘掠过色斑时能看出"玻璃"而不是"白块"。
+ *
+ * 用内联 SVG 的 feTurbulence 而不是一张 PNG：不占仓库体积、不占二进制、可任意缩放。
+ */
+.gx-grain {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	opacity: 0.4;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+	background-size: 160px 160px;
+}
+
+/* 主面板：卡片、侧栏、图表容器 */
+.gx-glass {
+	background: var(--gx-glass-bg);
+	border: 1px solid var(--gx-glass-border);
+	box-shadow: var(--gx-glass-shadow);
+	/* 只写标准属性，不要自己再补一份 -webkit-。
+	   Vite 的 CSS 压缩器会按目标浏览器自动加前缀，但它只加自己认得出的那一份；
+	   手写双份会被它当成重复声明，实测结果是**标准属性被删掉、只剩前缀版**。
+	   只写标准版，构建产物里两个都在（已实测确认）。 */
+	backdrop-filter: blur(20px) saturate(1.6);
+	border-radius: var(--gx-r-lg);
+}
+
+/* 次级玻璃：列表行、内嵌小块、输入容器 */
+.gx-glass-2 {
+	background: var(--gx-glass-2-bg);
+	border: 1px solid var(--gx-glass-2-border);
+	border-radius: var(--gx-r-md);
+}
+
+/* 胶囊：按钮、筛选、标签 */
+.gx-pill {
+	border-radius: var(--gx-r-pill);
+}
+
+/* 悬停时轻轻抬起，是"现代"手感的主要来源之一 */
+.gx-lift {
+	transition: transform var(--gx-dur) var(--gx-ease), box-shadow var(--gx-dur) var(--gx-ease),
+		background-color var(--gx-dur) var(--gx-ease), border-color var(--gx-dur) var(--gx-ease),
+		color var(--gx-dur) var(--gx-ease);
+}
+.gx-lift:hover {
+	transform: translateY(-1px);
+}
+
+/* 主行动按钮：渐变底 + 同色系光晕 */
+.gx-accent-btn {
+	background: var(--gx-accent-grad);
+	border: none;
+	color: #fff;
+	box-shadow: var(--gx-glass-shadow), 0 8px 24px -6px rgba(59, 130, 246, 0.45);
+	transition: transform var(--gx-dur) var(--gx-ease), box-shadow var(--gx-dur) var(--gx-ease),
+		filter var(--gx-dur) var(--gx-ease);
+}
+.gx-accent-btn:hover:not(:disabled) {
+	transform: translateY(-1px);
+	filter: brightness(1.04);
+}
+.gx-accent-btn:active:not(:disabled) {
+	transform: translateY(0);
+}
+.gx-accent-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+/* 幽灵按钮 / 胶囊标签 */
+.gx-ghost {
+	background: var(--gx-ghost-bg);
+	border: 1px solid var(--gx-ghost-border);
+	color: var(--gx-text-2);
+	transition: background-color var(--gx-dur) var(--gx-ease), color var(--gx-dur) var(--gx-ease),
+		border-color var(--gx-dur) var(--gx-ease);
+}
+.gx-ghost:hover {
+	background: var(--gx-ghost-bg-hover);
+	color: var(--gx-text);
+	border-color: var(--gx-accent-line);
+}
+.gx-ghost.is-active {
+	background: var(--gx-accent-soft);
+	border-color: var(--gx-accent-line);
+	color: var(--gx-accent);
+	font-weight: 600;
+}
+
+/* 小工具 */
+.gx-tabular {
+	font-variant-numeric: tabular-nums;
+}
+.gx-mono {
+	font-family: var(--gx-mono);
+}
+.gx-muted {
+	color: var(--gx-text-2);
+}
+.gx-faint {
+	color: var(--gx-text-3);
+}
+.gx-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.gx-col {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.gx-spacer {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.gx-truncate {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+.gx-section-title {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--gx-text-2);
+	letter-spacing: 0.02em;
+}
+
+/* 计划色点 */
+.gx-dot {
+	display: inline-block;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	flex: 0 0 auto;
+	box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+/*
+ * Naive UI 的浮层也走玻璃。
+ *
+ * themeOverrides 只能改颜色，改不了 backdrop-filter，所以这几条必须写在 CSS 里。
+ * 缺了它，弹窗会是"半透明的白块"，和周围的玻璃面板明显不是一套东西。
+ */
+.n-card,
+.n-modal,
+.n-dialog,
+.n-popover,
+.n-dropdown-menu,
+.n-notification,
+.n-message {
+	backdrop-filter: blur(22px) saturate(1.5);
+}
+
+/* Divider 默认那条线在玻璃上偏硬 */
+.n-divider:not(.n-divider--vertical) {
+	margin: 10px 0;
+}
+

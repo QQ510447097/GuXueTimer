@@ -1,36 +1,122 @@
-/* naive-ui 自带 CSS-in-JS，不需要单独引样式文件；这里只管应用自己的骨架与配色。 */
+/*
+ * 设计令牌与基础重置。
+ *
+ * 整套外观的目标是"个人开源软件的玻璃质感"，所以规则很明确：
+ *   - 颜色只有蓝白两族（浅色）与蓝调深色（深色），靠色阶和透明度拉开层次
+ *   - 面板一律半透明 + backdrop-filter，背后是渐变与三处色斑
+ *   - 圆角偏大（8~22px），没有 1px 硬直角，不用灰底表格
+ *
+ * 所有颜色都走 CSS 变量：主题切换只切 .theme-dark 这一个类，
+ * 组件里不出现任何写死的色值。
+ */
 
 :root {
-	--gx-bg: #f7f8fa;
-	--gx-surface: #ffffff;
-	--gx-surface-hover: rgba(0, 0, 0, 0.045);
-	--gx-border: rgba(0, 0, 0, 0.09);
-	--gx-text: #1f2225;
-	--gx-text-muted: #8a8f99;
-	--gx-accent: #2080f0;
-	--gx-accent-soft: rgba(32, 128, 240, 0.12);
-	--gx-danger: #d03050;
-	--gx-clock-running: #1f2225;
-	--gx-clock-paused: #f0a020;
-	--gx-clock-idle: #b6bac2;
+	/* ---- 浅色：蓝白 ---- */
+	--gx-bg-base: #eef4ff;
+	--gx-bg-gradient: linear-gradient(160deg, #f7faff 0%, #e9f1ff 45%, #eaf7ff 100%);
+	/* 色斑给得比较重、模糊半径不大：它们不只是装饰，还是玻璃面板能"读出来"的
+	   关键——层与层之间的边界越清楚，backdrop-filter 的效果越明显。 */
+	--gx-blob-1: rgba(84, 158, 255, 0.5);
+	--gx-blob-2: rgba(56, 214, 255, 0.38);
+	--gx-blob-3: rgba(132, 152, 255, 0.36);
+	--gx-blob-4: rgba(120, 220, 240, 0.28);
+
+	--gx-glass-bg: rgba(255, 255, 255, 0.58);
+	--gx-glass-border: rgba(255, 255, 255, 0.75);
+	--gx-glass-shadow: 0 10px 30px -12px rgba(37, 99, 235, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+	--gx-glass-2-bg: rgba(255, 255, 255, 0.44);
+	--gx-glass-2-border: rgba(255, 255, 255, 0.55);
+	/* 胶囊按钮/标签的填充。刻意用中性深色而不是白色：浅色主题下背景本来就接近白色，
+	   白色填充的胶囊会"消失"，只剩一个描边在那儿。 */
+	--gx-ghost-bg: rgba(15, 30, 56, 0.05);
+	--gx-ghost-bg-hover: rgba(15, 30, 56, 0.09);
+	--gx-ghost-border: rgba(15, 30, 56, 0.08);
+
+	--gx-accent: #3b82f6;
+	--gx-accent-2: #22d3ee;
+	--gx-accent-grad: linear-gradient(135deg, #4f8dfb, #22d3ee);
+	--gx-accent-soft: rgba(59, 130, 246, 0.12);
+	--gx-accent-line: rgba(59, 130, 246, 0.28);
+
+	--gx-text: #0f1e38;
+	--gx-text-2: #5a6b88;
+	--gx-text-3: #8c9ab4;
+	--gx-line: rgba(15, 30, 56, 0.08);
+	--gx-track: rgba(15, 30, 56, 0.07);
+	--gx-danger: #dc4c64;
+	--gx-warn: #e08c1a;
+	--gx-ok: #12a875;
+
+	/* 热力图五档：0 档几乎透明，其余按主色加深 */
+	--gx-heat-0: rgba(15, 30, 56, 0.06);
+	--gx-heat-1: rgba(59, 130, 246, 0.2);
+	--gx-heat-2: rgba(59, 130, 246, 0.4);
+	--gx-heat-3: rgba(59, 130, 246, 0.62);
+	--gx-heat-4: rgba(59, 130, 246, 0.86);
+
+	--gx-clock: #10203c;
+	--gx-clock-glow: 0 10px 34px -18px rgba(37, 99, 235, 0.55);
+
+	/* ---- 形状与动效（两套主题共用）---- */
+	--gx-r-xs: 8px;
+	--gx-r-sm: 12px;
+	--gx-r-md: 16px;
+	--gx-r-lg: 22px;
+	--gx-r-pill: 999px;
+	--gx-ease: cubic-bezier(0.4, 0, 0.2, 1);
+	--gx-dur: 180ms;
+	--gx-gap: 14px;
+
+	--gx-font: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+	--gx-mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
 }
 
+/* ---- 深色：蓝调，不是纯灰 ---- */
 .theme-dark {
-	--gx-bg: #101014;
-	--gx-surface: #18181c;
-	--gx-surface-hover: rgba(255, 255, 255, 0.07);
-	--gx-border: rgba(255, 255, 255, 0.12);
-	--gx-text: #e8e8ec;
-	--gx-text-muted: #8f8f99;
-	--gx-accent: #70c0e8;
-	--gx-accent-soft: rgba(112, 192, 232, 0.16);
-	--gx-danger: #e88080;
-	--gx-clock-running: #f2f2f5;
-	--gx-clock-paused: #f2c97d;
-	--gx-clock-idle: #55565c;
+	--gx-bg-base: #0a1220;
+	--gx-bg-gradient: linear-gradient(160deg, #0c1728 0%, #0a1220 50%, #0c1b2e 100%);
+	--gx-blob-1: rgba(59, 130, 246, 0.34);
+	--gx-blob-2: rgba(34, 211, 238, 0.24);
+	--gx-blob-3: rgba(99, 102, 241, 0.28);
+	--gx-blob-4: rgba(45, 212, 191, 0.2);
+
+	--gx-glass-bg: rgba(20, 32, 52, 0.55);
+	--gx-glass-border: rgba(255, 255, 255, 0.1);
+	--gx-glass-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+	--gx-glass-2-bg: rgba(20, 32, 52, 0.4);
+	--gx-glass-2-border: rgba(255, 255, 255, 0.07);
+	--gx-ghost-bg: rgba(255, 255, 255, 0.08);
+	--gx-ghost-bg-hover: rgba(255, 255, 255, 0.14);
+	--gx-ghost-border: rgba(255, 255, 255, 0.12);
+
+	--gx-accent: #60a5fa;
+	--gx-accent-2: #22d3ee;
+	--gx-accent-grad: linear-gradient(135deg, #3b82f6, #22d3ee);
+	--gx-accent-soft: rgba(96, 165, 250, 0.16);
+	--gx-accent-line: rgba(96, 165, 250, 0.3);
+
+	--gx-text: #e8effa;
+	--gx-text-2: #9fb0cc;
+	--gx-text-3: #6c7e9c;
+	--gx-line: rgba(255, 255, 255, 0.08);
+	--gx-track: rgba(255, 255, 255, 0.09);
+	--gx-danger: #f08a9b;
+	--gx-warn: #f0c070;
+	--gx-ok: #4ade9f;
+
+	--gx-heat-0: rgba(255, 255, 255, 0.05);
+	--gx-heat-1: rgba(96, 165, 250, 0.28);
+	--gx-heat-2: rgba(96, 165, 250, 0.48);
+	--gx-heat-3: rgba(96, 165, 250, 0.7);
+	--gx-heat-4: rgba(96, 165, 250, 0.95);
+
+	--gx-clock: #f2f7ff;
+	--gx-clock-glow: 0 12px 38px -18px rgba(96, 165, 250, 0.5);
 }
 
-* {
+*,
+*::before,
+*::after {
 	box-sizing: border-box;
 }
 
@@ -47,61 +133,79 @@ body,
  * NConfigProvider 会渲染一层真实的 div，它是 #app 和 .shell 之间的一层。
  * 不给它高度的话，下面 .shell 的 height: 100% 会因为父级高度是 auto 而失效
  * （百分比高度遇到 auto 高度的父级会退化成 auto），后果是侧边栏不满高、
- * .content 的 overflow-y 也不生效，整页被内容撑开。
+ * 内容区也不独立滚动。上一版就是踩了这个坑。
  */
 .app-root {
 	height: 100%;
 }
 
 body {
-	/* 窗口最小 400x600，任何一处溢出都会变成横向滚动条，这里直接掐掉。 */
+	/* 窗口最小 560x680，任何一处溢出都会变成滚动条，这里直接掐掉 */
 	overflow: hidden;
-	background: var(--gx-bg);
 	color: var(--gx-text);
-	font-family: "Inter", "Segoe UI", "Microsoft YaHei", system-ui, -apple-system,
-		"Helvetica Neue", Arial, sans-serif;
+	background: var(--gx-bg-base);
+	font-family: var(--gx-font);
 	font-size: 14px;
 	line-height: 1.5;
 	-webkit-font-smoothing: antialiased;
-}
-
-#app {
-	min-width: 0;
-}
-
-/* 桌面应用里页面级选中文字通常是误操作，只在需要的地方放开。 */
-.shell,
-.content {
-	user-select: none;
-}
-
-input,
-textarea {
-	user-select: text;
+	text-rendering: optimizeLegibility;
 }
 
 h1,
 h2,
 h3,
+h4,
 p {
 	margin: 0;
+}
+
+button {
+	font-family: inherit;
+}
+
+/* 桌面应用里页面级选中文字多为误操作，只在输入处放开 */
+body {
+	user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+	user-select: text;
 }
 
 :focus-visible {
 	outline: 2px solid var(--gx-accent);
 	outline-offset: 2px;
+	border-radius: 6px;
 }
 
-::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
+/* 滚动条：细、半透明，跟随主题 */
+.gx-scroll {
+	overflow-y: auto;
+	overflow-x: hidden;
 }
-
-::-webkit-scrollbar-track {
+.gx-scroll::-webkit-scrollbar {
+	width: 9px;
+}
+.gx-scroll::-webkit-scrollbar-track {
 	background: transparent;
 }
+.gx-scroll::-webkit-scrollbar-thumb {
+	background: var(--gx-track);
+	border-radius: 6px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+}
+.gx-scroll::-webkit-scrollbar-thumb:hover {
+	background: var(--gx-accent-line);
+	background-clip: content-box;
+}
 
-::-webkit-scrollbar-thumb {
-	background: var(--gx-border);
-	border-radius: 4px;
+/* 尊重"减少动态效果"的系统设置：玻璃质感不依赖动画，关掉照样好看 */
+@media (prefers-reduced-motion: reduce) {
+	* {
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+	}
 }

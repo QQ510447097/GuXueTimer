@@ -15,10 +15,32 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * DataDir 返回数据目录的绝对路径，供设置页展示。
+ * 
+ * 由后端给而不是让界面拼 %LOCALAPPDATA%：目录在解析时是逐级降级的
+ * （Wails 的 PathDataHome → %LOCALAPPDATA% → XDG → UserConfigDir），
+ * 界面自己拼出来的那个很可能不是真正在用的。
+ */
+export function DataDir(): $CancellablePromise<string> {
+    return $Call.ByID(141822171);
+}
+
+/**
  * Get 返回当前设置。
  */
 export function Get(): $CancellablePromise<$models.SettingsDTO> {
     return $Call.ByID(710695688);
+}
+
+/**
+ * OpenDataDir 在资源管理器里打开数据目录。
+ * 
+ * 用 explorer.exe 而不是 Wails 的 API：v3 beta.27 没有导出打开文件管理器的
+ * 方法，而这正是 Windows 上最少依赖的做法。explorer 即使目录不存在也会返回 0，
+ * 所以这里先自己确认一遍目录存在，好给用户一个明确的错误。
+ */
+export function OpenDataDir(): $CancellablePromise<void> {
+    return $Call.ByID(2466627355);
 }
 
 /**

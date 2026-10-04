@@ -66,3 +66,121 @@ export function formatTodayLabel(stamp: number): string {
 	const p = (n: number) => String(n).padStart(2, "0");
 	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+
+/** HH:MM:SS → HH:MM，给记录行的起止时刻用。解析失败时原样返回。 */
+export function formatClockHM(rfc3339: string): string {
+	const full = formatClockTime(rfc3339);
+	return /^\d{2}:\d{2}:\d{2}$/.test(full) ? full.slice(0, 5) : full;
+}
+
+/*
+ * 以下是视图层共用的纯日期工具。
+ *
+ * 放在这里而不是各自的组件里：热力图、柱状图、区间查询、记录查询必须用
+ * **同一个** 日期键格式（YYYY-MM-DD，严格零填充），后端 resolveDate 也按这个
+ * 布局严格解析（"2026-5-1" 会被拒绝）。四处各格式化一遍迟早会漂移。
+ *
+ * 全部按本地时区计算：后端用本地时区判定"今天"，前端不能改用 UTC，
+ * 否则东八区的凌晨会把记录算到前一天。
+ */
+
+function pad2(n: number): string {
+	return String(n).padStart(2, "0");
+}
+
+/** 本地日期键 YYYY-MM-DD。 */
+export function dayKeyOf(stamp: number | Date): string {
+	const d = stamp instanceof Date ? stamp : new Date(stamp);
+	return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** 今天的日期键。 */
+export function todayKey(): string {
+	return dayKeyOf(new Date());
+}
+
+/** 日期键 → 本地零点时间戳；格式不对返回 NaN。 */
+export function dayKeyStamp(key: string): number {
+	const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+	if (!m) return NaN;
+	return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+}
+
+/** 日期键加减天数。交给 Date 处理跨月、跨年。 */
+export function addDays(key: string, delta: number): string {
+	const stamp = dayKeyStamp(key);
+	if (Number.isNaN(stamp)) return key;
+	const d = new Date(stamp);
+	d.setDate(d.getDate() + delta);
+	return dayKeyOf(d);
+}
+
+/**
+ * 闭区间 [from, to] 的日期键序列。
+ *
+ * 带一个硬上限：非法输入时 dayKeyStamp 会返回 NaN，没有上限就是一个死循环。
+ */
+export function dayRange(from: string, to: string): string[] {
+	const out: string[] = [];
+	let cursor = from;
+	for (let i = 0; i < 1000; i += 1) {
+		if (Number.isNaN(dayKeyStamp(cursor)) || cursor > to) break;
+		out.push(cursor);
+		cursor = addDays(cursor, 1);
+	}
+	return out;
+}
+
+/** 日期键所属月份 YYYY-MM。 */
+export function monthOf(key: string): string {
+	return key.slice(0, 7);
+}
+
+/** 月份 YYYY-MM 加减。 */
+export function shiftMonth(month: string, delta: number): string {
+	const year = Number(month.slice(0, 4));
+	const m = Number(month.slice(5, 7));
+	if (!Number.isFinite(year) || !Number.isFinite(m)) return month;
+	const d = new Date(year, m - 1 + delta, 1);
+	return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+
+/** 该月的天数（1..31）。借 Date 的"下月第 0 天"处理闰年。 */
+export function daysInMonth(month: string): number {
+	const year = Number(month.slice(0, 4));
+	const m = Number(month.slice(5, 7));
+	if (!Number.isFinite(year) || !Number.isFinite(m)) return 30;
+	return new Date(year, m, 0).getDate();
+}
+
+/** 月份标题：2026 年 5 月。 */
+export function monthLabel(month: string): string {
+	const year = month.slice(0, 4);
+	const m = Number(month.slice(5, 7));
+	return `${year} 年 ${m} 月`;
+}
+
+const weekdayNames = ["日", "一", "二", "三", "四", "五", "六"];
+
+/** 日期标题：5 月 1 日 周五。 */
+export function dayLabel(key: string): string {
+	const stamp = dayKeyStamp(key);
+	if (Number.isNaN(stamp)) return key;
+	const d = new Date(stamp);
+	return `${d.getMonth() + 1} 月 ${d.getDate()} 日 周${weekdayNames[d.getDay()]}`;
+}
+
+/** 图表横轴用的短标签：5/1。 */
+export function shortDayLabel(key: string): string {
+	const m = Number(key.slice(5, 7));
+	const d = Number(key.slice(8, 10));
+	if (!Number.isFinite(m) || !Number.isFinite(d)) return key;
+	return `${m}/${d}`;
+}
+
+/** 周一起算的星期下标：0 = 周一。 */
+export function weekdayFromMonday(key: string): number {
+	const stamp = dayKeyStamp(key);
+	if (Number.isNaN(stamp)) return 0;
+	return (new Date(stamp).getDay() + 6) % 7;
+}

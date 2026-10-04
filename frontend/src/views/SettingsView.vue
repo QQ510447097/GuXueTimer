@@ -1,201 +1,303 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
-import { NAlert, NButton, NDivider, NInputNumber, NRadio, NRadioGroup, NSwitch, useMessage } from "naive-ui";
+import { computed, ref, watch } from "vue";
+import { NInputNumber, NRadioButton, NRadioGroup, NSwitch, useMessage } from "naive-ui";
 import type { SettingsDTO } from "../../bindings/goxuetimer/models";
-import { useSettings, type ThemeChoice } from "../composables/useSettings";
+import * as SettingsService from "../../bindings/goxuetimer/settingsservice";
+import GlassPanel from "../components/GlassPanel.vue";
+import { errText } from "../composables/format";
+import { useSettings } from "../composables/useSettings";
 
-const { settings, loading, saving, loadError, saveError, load, save } = useSettings();
+/**
+ * 设置页。
+ *
+ * 表单是一份本地草稿，只有点"保存"才回传后端：开关类设置每动一下就写盘
+ * 会让"改错了"变得不可撤销，而且毛玻璃这种要重启才生效的选项
+ * 立即生效反而会误导用户。
+ */
+const { settings, saving, loadError, saveError, save } = useSettings();
 const message = useMessage();
 
-// 绑定生成器用 -i 产出的是接口（纯类型），clone 只能手写字段，不能 new。
-function clone(dto: SettingsDTO): SettingsDTO {
-	return {
-		breakReminderEnabled: dto.breakReminderEnabled,
-		breakIntervalMin: dto.breakIntervalMin,
-		minimizeToTray: dto.minimizeToTray,
-		theme: dto.theme,
-	};
+const draft = ref<SettingsDTO>({ ...settings.value });
+
+// 保存成功、或别处改了设置（托盘菜单）之后，表单要显示真正生效的值。
+watch(
+	settings,
+	(next) => {
+		draft.value = { ...next };
+	},
+	{ immediate: true },
+);
+
+/** NInputNumber 的 v-model 是 number | null，不能直接绑在 number 字段上。 */
+const intervalMin = computed<number | null>({
+	get: () => draft.value.breakIntervalMin,
+	set: (value) => {
+		draft.value.breakIntervalMin = value ?? 1;
+	},
+});
+
+/** NRadioGroup 的值是 string | number | boolean，收窄成主题枚举。 */
+const themeValue = computed<string>({
+	get: () => draft.value.theme,
+	set: (value) => {
+		draft.value.theme = value === "light" || value === "dark" ? value : "system";
+	},
+});
+
+// 数据目录由后端给出：真实路径是逐级降级算出来的，界面自己拼很可能不是那个。
+const dataPath = ref("");
+const openingDir = ref(false);
+
+void SettingsService.DataDir()
+	.then((dir) => {
+		dataPath.value = dir || "";
+	})
+	.catch(() => {
+		dataPath.value = "（读取数据目录失败）";
+	});
+
+async function openDataDir(): Promise<void> {
+	if (openingDir.value) return;
+	openingDir.value = true;
+	try {
+		await SettingsService.OpenDataDir();
+	} catch (err) {
+		message.error(errText(err));
+	} finally {
+		openingDir.value = false;
+	}
 }
-
-const draft = ref<SettingsDTO>(clone(settings.value));
-const themeChoice = ref<ThemeChoice>("system");
-
-function syncFrom(dto: SettingsDTO): void {
-	draft.value = clone(dto);
-	themeChoice.value =
-		dto.theme === "light" || dto.theme === "dark" ? dto.theme : "system";
-}
-
-// 保存成功、或别处改了设置（比如托盘）之后，表单要显示真正生效的值。
-watch(settings, (next) => syncFrom(next), { immediate: true });
 
 async function onSave(): Promise<void> {
 	const payload: SettingsDTO = {
 		breakReminderEnabled: draft.value.breakReminderEnabled,
-		breakIntervalMin: draft.value.breakIntervalMin ?? 45,
+		breakIntervalMin: draft.value.breakIntervalMin,
 		minimizeToTray: draft.value.minimizeToTray,
-		theme: themeChoice.value,
+		theme: draft.value.theme,
+		// 0 是"不表态"：当前计划只由 PlansService.SetCurrent 掌管，
+		// 设置页回传任何具体值都可能把用户刚选的计划覆盖掉。
+		currentPlanId: 0,
+		windowTranslucent: draft.value.windowTranslucent,
 	};
 	const saved = await save(payload);
-	if (saved) {
-		// 后端返回的是归一化后的结论，拿它覆盖表单，用户才知道实际生效值。
-		syncFrom(saved);
-		message.success("设置已保存");
+	if (!saved) {
+		message.error(saveError.value || "保存失败");
 		return;
 	}
-	message.error(saveError.value || "保存失败");
+	// 用返回值覆盖草稿：越界值会被后端归一化，界面要显示真正生效的值。
+	draft.value = { ...saved };
+	message.success("设置已保存");
 }
-
-onMounted(() => {
-	void load(true);
-});
 </script>
 
 <template>
-	<section class="settings-view">
-		<h2 class="settings-title">设置</h2>
-
-		<NAlert v-if="loadError" class="settings-alert" type="error" :bordered="false" title="读取设置失败">
-			{{ loadError }}
-		</NAlert>
-
-		<div class="setting-group">
-			<div class="setting-row">
-				<div class="setting-label">
-					<span>休息提醒</span>
-					<span class="setting-desc">按固定间隔提醒你起来活动一下</span>
+	<section class="settings-view gx-col">
+		<GlassPanel padding="16px 18px">
+			<p class="gx-section-title">休息提醒</p>
+			<div class="rows">
+				<div class="row">
+					<div class="row-text">
+						<span class="row-label">开启休息提醒</span>
+						<span class="row-hint gx-faint">连续学习到设定间隔时提醒你起来活动一下</span>
+					</div>
+					<NSwitch v-model:value="draft.breakReminderEnabled" />
 				</div>
-				<NSwitch v-model:value="draft.breakReminderEnabled" />
+				<div class="row">
+					<div class="row-text">
+						<span class="row-label">提醒间隔</span>
+						<span class="row-hint gx-faint">1 ~ 480 分钟，按已连续学习的时间计算</span>
+					</div>
+					<div class="inline">
+						<NInputNumber
+							v-model:value="intervalMin"
+							class="num"
+							:min="1"
+							:max="480"
+							:disabled="!draft.breakReminderEnabled"
+						/>
+						<span class="unit gx-muted">分钟</span>
+					</div>
+				</div>
 			</div>
+		</GlassPanel>
 
-			<div class="setting-row" :class="{ 'is-dim': !draft.breakReminderEnabled }">
-				<div class="setting-label">
-					<span>提醒间隔</span>
-					<span class="setting-desc">1 ~ 480 分钟，默认 45 分钟</span>
-				</div>
-				<div class="setting-control-inline">
-					<NInputNumber v-model:value="draft.breakIntervalMin" :min="1" :max="480" :step="5" :disabled="!draft.breakReminderEnabled"
-						class="interval-input" />
-					<span class="unit">分钟</span>
+		<GlassPanel padding="16px 18px">
+			<p class="gx-section-title">窗口行为</p>
+			<div class="rows">
+				<div class="row">
+					<div class="row-text">
+						<span class="row-label">关闭窗口时最小化到托盘</span>
+						<span class="row-hint gx-faint">关闭后计时与休息提醒仍在后台运行</span>
+					</div>
+					<NSwitch v-model:value="draft.minimizeToTray" />
 				</div>
 			</div>
+		</GlassPanel>
+
+		<GlassPanel padding="16px 18px">
+			<p class="gx-section-title">外观</p>
+			<div class="rows">
+				<div class="row">
+					<div class="row-text">
+						<span class="row-label">主题</span>
+					</div>
+					<NRadioGroup v-model:value="themeValue" size="small">
+						<NRadioButton value="system">跟随系统</NRadioButton>
+						<NRadioButton value="light">浅色</NRadioButton>
+						<NRadioButton value="dark">深色</NRadioButton>
+					</NRadioGroup>
+				</div>
+				<div class="row">
+					<div class="row-text">
+						<span class="row-label">窗口毛玻璃</span>
+						<!-- 窗口背景类型是原生层的"创建窗口"参数，改不了已经创建的窗口 -->
+						<span class="row-hint gx-faint">需要重启应用后生效</span>
+					</div>
+					<NSwitch v-model:value="draft.windowTranslucent" />
+				</div>
+			</div>
+		</GlassPanel>
+
+		<GlassPanel padding="16px 18px">
+			<p class="gx-section-title">数据</p>
+			<div class="path gx-mono gx-truncate" :title="dataPath">
+				{{ dataPath || "读取中…" }}
+			</div>
+			<button
+				type="button"
+				class="ghost gx-ghost gx-pill"
+				:disabled="openingDir"
+				@click="openDataDir"
+			>
+				打开所在文件夹
+			</button>
+		</GlassPanel>
+
+		<GlassPanel padding="16px 18px">
+			<p class="gx-section-title">关于</p>
+			<div class="about">
+				<span class="about-name">孤雪学习计时器</span>
+				<span class="gx-muted">一个把专注时间记下来的小工具：计时、记录、计划与休息提醒。</span>
+				<span class="about-stack gx-mono gx-faint">Go + Wails v3 + Vue 3</span>
+			</div>
+		</GlassPanel>
+
+		<div class="footer">
+			<button type="button" class="save gx-accent-btn gx-pill" :disabled="saving" @click="onSave">
+				{{ saving ? "保存中…" : "保存" }}
+			</button>
+			<p v-if="loadError" class="error">{{ loadError }}</p>
+			<p v-if="saveError" class="error">{{ saveError }}</p>
 		</div>
-
-		<NDivider class="settings-divider" />
-
-		<div class="setting-group">
-			<div class="setting-row">
-				<div class="setting-label">
-					<span>关闭窗口时最小化到托盘</span>
-					<span class="setting-desc">关闭后应用继续在托盘运行</span>
-				</div>
-				<NSwitch v-model:value="draft.minimizeToTray" />
-			</div>
-
-			<div class="setting-row setting-row-stack">
-				<div class="setting-label">
-					<span>主题</span>
-					<span class="setting-desc">跟随系统会实时响应 Windows 的深浅色切换</span>
-				</div>
-				<NRadioGroup v-model:value="themeChoice" class="theme-group">
-					<NRadio value="system">跟随系统</NRadio>
-					<NRadio value="light">浅色</NRadio>
-					<NRadio value="dark">深色</NRadio>
-				</NRadioGroup>
-			</div>
-		</div>
-
-		<NAlert v-if="saveError" class="settings-alert" type="error" :bordered="false" title="保存失败">
-			{{ saveError }}
-		</NAlert>
-
-		<NButton class="settings-save" type="primary" size="large" block :loading="saving" :disabled="loading"
-			@click="onSave">
-			保存
-		</NButton>
 	</section>
 </template>
 
 <style scoped>
 .settings-view {
-	display: flex;
-	flex-direction: column;
-	min-height: 0;
+	gap: var(--gx-gap);
 }
 
-.settings-title {
-	margin: 0 0 12px;
-	font-size: 16px;
-	font-weight: 600;
-}
-
-.setting-group {
+.rows {
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
+	margin-top: 12px;
 }
 
-.setting-row {
+.row {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
 	gap: 12px;
+	min-width: 0;
 }
 
-.setting-row-stack {
-	flex-direction: column;
-	align-items: stretch;
-	gap: 8px;
-}
-
-.is-dim {
-	opacity: 0.55;
-}
-
-.setting-label {
+.row-text {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 1px;
+	flex: 1 1 auto;
 	min-width: 0;
-	font-size: 14px;
 }
 
-.setting-desc {
-	font-size: 12px;
-	color: var(--gx-text-muted);
+.row-label {
+	font-size: 13.5px;
 }
 
-.setting-control-inline {
+.row-hint {
+	font-size: 11.5px;
+}
+
+.inline {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 7px;
 	flex: 0 0 auto;
 }
 
-.interval-input {
-	width: 108px;
+.num {
+	width: 104px;
 }
 
 .unit {
-	font-size: 13px;
-	color: var(--gx-text-muted);
+	font-size: 12.5px;
 }
 
-.theme-group {
+.path {
+	padding: 9px 12px;
+	margin: 12px 0 10px;
+	border-radius: var(--gx-r-sm);
+	background: var(--gx-glass-2-bg);
+	border: 1px solid var(--gx-glass-2-border);
+	font-size: 12px;
+	color: var(--gx-text-2);
+}
+
+.ghost {
+	padding: 6px 13px;
+	font-size: 12.5px;
+	font-family: inherit;
+	cursor: pointer;
+}
+
+.about {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 4px 14px;
+	flex-direction: column;
+	gap: 3px;
+	margin-top: 10px;
+	font-size: 13px;
 }
 
-.settings-divider {
-	margin: 16px 0;
+.about-name {
+	font-size: 15px;
+	font-weight: 650;
 }
 
-.settings-alert {
-	margin-top: 14px;
+.about-stack {
+	font-size: 12px;
 }
 
-.settings-save {
-	margin-top: 18px;
+.footer {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-bottom: 4px;
+}
+
+.save {
+	width: 100%;
+	padding: 11px 18px;
+	font-size: 14.5px;
+	font-weight: 600;
+	font-family: inherit;
+	cursor: pointer;
+}
+
+.save:disabled {
+	cursor: not-allowed;
+}
+
+.error {
+	font-size: 12.5px;
+	color: var(--gx-danger);
 }
 </style>

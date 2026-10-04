@@ -9,6 +9,9 @@ frontend/node_modules
 # tools/ 下的 Python 辅助脚本被直接执行或互相导入时会生成缓存
 __pycache__/
 
+# tools/shoot.ps1 的截图产物：随时可以重跑生成，不进版本库
+screenshots/
+
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 # Mobile generated (per-machine; overlays hold absolute paths)
