@@ -63,7 +63,7 @@ async function submit(): Promise<void> {
 	<div class="onboarding">
 		<GlassPanel class="card" padding="28px 26px">
 			<div class="brand">
-				<span class="mark" aria-hidden="true">孤</span>
+				<span class="mark" aria-hidden="true">雪</span>
 				<div class="titles">
 					<h1 class="title">孤雪学习计时器</h1>
 					<p class="sub gx-muted">
