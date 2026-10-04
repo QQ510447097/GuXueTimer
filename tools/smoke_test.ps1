@@ -70,10 +70,27 @@ function Get-AppProcess {
     Get-Process -Name $processName -ErrorAction SilentlyContinue
 }
 
-# 结束应用。多次重试：窗口隐藏到托盘之后，进程退出可能还要抢一下 SQLite 的文件句柄。
+# 结束应用。**优先优雅退出**：--quit 让已有实例走它自己的退出路径，那条路径会
+# NIM_DELETE 掉托盘图标；强杀不会，会在通知区域留下"残留图标"（要等鼠标扫过才被
+# 系统清掉）。这个脚本一天要跑很多次，全都强杀就等于一直往用户的通知区域里堆东西。
+#
+# 但有些场景**必须**用强杀：要模拟"进程异常消失"（崩溃恢复、单实例锁残留）时，
+# 优雅退出会顺带把状态收拾干净，测不出想测的东西。所以强杀保留为显式选项。
+#
 # 调用方在收尾处必须自己断言没有残留——残留进程会一直占着 timer.db。
 function Stop-App {
-    param([int]$Attempts = 3)
+    param([int]$Attempts = 3, [switch]$Hard)
+
+    if (-not (Get-AppProcess)) { return }
+
+    if (-not $Hard) {
+        try { Start-Process -FilePath $exe -ArgumentList '--quit' -ErrorAction Stop | Out-Null } catch { }
+        for ($i = 0; $i -lt 16; $i++) {
+            if (-not (Get-AppProcess)) { return }
+            Start-Sleep -Milliseconds 300
+        }
+    }
+
     for ($i = 1; $i -le $Attempts; $i++) {
         $procs = @(Get-AppProcess)
         if ($procs.Count -eq 0) { return }
@@ -425,6 +442,9 @@ Stop-App
 Assert-That ((@(Get-AppProcess)).Count -eq 0) '收尾时没有残留进程（残留会占住 timer.db）'
 
 Write-Host "`n测试数据留在：$dataDir" -ForegroundColor DarkGray
+Write-Host '注意：跑完之后应用的数据目录里是一份**测试库**（最后两幕会把它替换成合成数据，' -ForegroundColor DarkGray
+Write-Host '      主题也会被第 8 幕灌成 dark）。想恢复成一份好看的演示数据：' -ForegroundColor DarkGray
+Write-Host '        python tools\seed_demo.py --clear' -ForegroundColor DarkGray
 
 # ---------------------------------------------------------------- 汇总
 

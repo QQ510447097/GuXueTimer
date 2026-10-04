@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log/slog"
+
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"goxuetimer/internal/timer"
@@ -60,6 +62,24 @@ func newTrayController(app *application.App, b *backend, icon []byte) *trayContr
 	t.tray = tray
 	t.menu = menu
 	return t
+}
+
+// destroy 摘掉托盘图标。
+//
+// 正常退出时它会由 OnShutdown 调用一次；如果退出路径绕过了 Wails 的关闭流程
+// （os.Exit / panic），则由 main.go 里的 trayCleanup 兜底调用。
+// 重复调用是安全的：SystemTray.Destroy 会把托盘从应用的托盘表里摘掉，
+// 之后 Wails 遍历那张表时已经没有它了。
+//
+// 这里刻意打一条日志，而且用词固定：它是"退出时到底有没有删掉托盘图标"
+// 唯一可靠的观测点。数通知区域里的图标个数是不可靠的——explorer 的托盘工具条
+// 删除按钮是惰性的，数出来的变化说明不了问题。
+func (t *trayController) destroy() {
+	if t == nil || t.tray == nil {
+		return
+	}
+	t.tray.Destroy()
+	slog.Info("已摘掉托盘图标")
 }
 
 // update 把最新状态同步到托盘。

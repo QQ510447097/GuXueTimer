@@ -128,7 +128,10 @@ def seed(conn: sqlite3.Connection, days: int) -> dict:
 
     # 当前计划选一个在用的（最后那个已归档，不能当默认）。
     upsert("currentPlanId", str(plan_ids[0]))
+    # 主题与毛玻璃也一并写死：不写的话，库里可能还留着上一次实验的值
+    # （比如冒烟测试灌进去的 theme=dark），截出来的图和"默认外观"对不上。
     upsert("theme", "light")
+    upsert("windowTranslucent", "false")
     upsert("breakReminderEnabled", "true")
     upsert("breakIntervalMin", "45")
     upsert("minimizeToTray", "true")

@@ -56,8 +56,25 @@ if (-not (Test-Path $probe)) {
 
 function Get-AppProcess { Get-Process -Name $processName -ErrorAction SilentlyContinue }
 
+# 结束应用。**优先优雅退出**：用 --quit 让已有实例走它自己的退出路径，
+# 那条路径会 NIM_DELETE 掉托盘图标。
+#
+# 为什么不直接 Stop-Process -Force：强杀不会删托盘图标，会在通知区域留下
+# "残留图标"，要等鼠标扫过才被系统清掉。截图脚本一天要跑很多次，
+# 每次强杀都在用户的通知区域里堆一个，最后看起来就像"托盘图标越堆越多"。
+# 强杀只作为兜底（应用卡死时）。
 function Stop-App {
     param([int]$Attempts = 3)
+    if (-not (Get-AppProcess)) { return }
+
+    if (Test-Path $exe) {
+        try { Start-Process -FilePath $exe -ArgumentList '--quit' -ErrorAction Stop | Out-Null } catch { }
+        for ($i = 0; $i -lt 16; $i++) {
+            if (-not (Get-AppProcess)) { return }
+            Start-Sleep -Milliseconds 300
+        }
+    }
+
     for ($i = 1; $i -le $Attempts; $i++) {
         $procs = @(Get-AppProcess)
         if ($procs.Count -eq 0) { return }

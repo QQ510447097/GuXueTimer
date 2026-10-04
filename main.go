@@ -51,6 +51,25 @@ func main() {
 		defer func() { _ = logFile.Close() }()
 	}
 
+	// 异常退出时的兜底。
+	//
+	// 正常退出会走 app.Quit() -> Wails 的关闭流程 -> 逐个 systray.destroy()
+	// （内部就是 NIM_DELETE），托盘图标会被摘掉。但下面两条路径绕过了那套流程：
+	//
+	//   - app.Run() 返回错误后走 fatal()，里面是 os.Exit
+	//   - main 里发生 panic
+	//
+	// 两者都会让进程直接消失，而托盘图标不显式删除就会变成通知区域里的
+	// "残留图标"——直到鼠标扫过才被系统清掉，也就是用户看到的那种"图标越堆越多"。
+	// 用一个可替换的清理函数记下当时的托盘，供这两条路径调用。
+	trayCleanup := func() {}
+	defer func() {
+		if r := recover(); r != nil {
+			trayCleanup()
+			fatal("发生未预期的错误", fmt.Errorf("%v", r))
+		}
+	}()
+
 	b, err := setupBackend(nil)
 	if err != nil {
 		fatal("初始化失败", err)
@@ -88,13 +107,33 @@ func main() {
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.guduxue.guxuetimer",
-			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				// 支持 `GuXueTimer.exe --quit`：让"优雅退出已有实例"变成一个可以从
+				// 命令行或脚本触发的动作。
+				//
+				// 这不只是给开发工具用的。走这个开关和走托盘菜单的「退出」是同一条
+				// 路径（b.quit -> app.Quit -> Wails 关闭流程 -> NIM_DELETE），而
+				// "结束任务"式的强杀不是——强杀会留下残留图标。有了这个开关，
+				// 脚本和快捷方式就不必再用强杀，也就不会再往通知区域里堆东西。
+				if hasQuitFlag(data.Args) {
+					slog.Info("收到 --quit，正在退出已有实例")
+					b.quit()
+					return
+				}
 				// 第二次启动：把已有窗口叫回来，而不是再开一个进程。
 				b.showMainWindow()
 			},
 		},
 		OnShutdown: func() {
 			b.stop()
+			// 显式摘掉托盘再让 Wails 收尾。两点考虑：
+			//
+			//   1. 可观测：我们自己调 destroy，日志里就一定有"已摘掉托盘图标"。
+			//      "退出时删没删图标"这件事因此可以用日志断言，而不必去数通知
+			//      区域里那几个图标——那件事数不准（explorer 删除按钮是惰性的）。
+			//   2. 幂等：Destroy 会把托盘从应用的托盘表里摘掉，Wails 随后的
+			//      关闭流程遍历那张表时已经没有它，不会重复删除。
+			trayCleanup()
 			slog.Info("应用正在退出")
 		},
 	})
@@ -156,6 +195,8 @@ func main() {
 	}
 
 	tray := newTrayController(app, b, trayIcon)
+	// 记下清理动作：此后任何绕过 app.Quit() 的退出路径都能先把托盘摘掉。
+	trayCleanup = tray.destroy
 	b.attach(app, window, tray)
 
 	// 应用真正跑起来之后再刷一次托盘：Menu.Update 在 app.Run 之前是空操作。
@@ -165,8 +206,24 @@ func main() {
 	})
 
 	if err := app.Run(); err != nil {
+		// Run 出错时托盘可能已经注册过了，先摘掉再退出：fatal 走的是 os.Exit，
+		// 不会经过 Wails 的关闭流程。
+		trayCleanup()
 		fatal("运行失败", err)
 	}
+}
+
+// hasQuitFlag 判断第二次启动是否带着"让已有实例退出"的意图。
+//
+// 三种写法都接受：Windows 上习惯用 /quit，跨平台脚本常用 --quit。
+func hasQuitFlag(args []string) bool {
+	for _, arg := range args {
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "--quit", "-quit", "/quit":
+			return true
+		}
+	}
+	return false
 }
 
 // debugBrowserArgs 在设置了 GX_DEBUG_PORT 时给 WebView2 开远程调试端口。
