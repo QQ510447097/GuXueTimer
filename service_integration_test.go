@@ -84,7 +84,11 @@ type harness struct {
 	spy      *eventSpy
 	timer    *TimerService
 	records  *RecordsService
+	plans    *PlansService
 	settings *SettingsService
+
+	// defaultPlanID 是夹具默认建好的计划，计时的用例都从它开始。
+	defaultPlanID int64
 }
 
 func newHarness(t *testing.T) *harness {
@@ -118,14 +122,29 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("Recover() 失败: %v", err)
 	}
 
-	return &harness{
+	h := &harness{
 		b:        b,
 		clock:    clk,
 		spy:      spy,
 		timer:    NewTimerService(b),
 		records:  NewRecordsService(b),
+		plans:    NewPlansService(b),
 		settings: NewSettingsService(b),
 	}
+	// 计时现在必须先有计划，所以夹具默认建一个：绝大多数用例只关心计时，
+	// 不该每个都自己写一遍建计划的样板。
+	h.defaultPlanID = h.mustCreatePlan(t, "默认计划", planPalette[0])
+	return h
+}
+
+// mustCreatePlan 建一个计划并返回它的 id。
+func (h *harness) mustCreatePlan(t *testing.T, name, color string) int64 {
+	t.Helper()
+	plan, err := h.plans.Create(name, color)
+	if err != nil {
+		t.Fatalf("Create(%q) 失败: %v", name, err)
+	}
+	return plan.ID
 }
 
 // ---------------------------------------------------------------- 完整计时流程
@@ -170,15 +189,15 @@ func TestService_FullTimerFlow(t *testing.T) {
 	}
 
 	// 落库之后，今日累计与列表都要能看到它。
-	sum, err := h.records.TodaySummary()
+	sum, err := h.records.DaySummary("", 0)
 	if err != nil {
-		t.Fatalf("TodaySummary() 失败: %v", err)
+		t.Fatalf("DaySummary() 失败: %v", err)
 	}
 	if sum.TotalSec != want || sum.Count != 1 {
 		t.Errorf("今日汇总 = %+v, 期望 total=%d count=1", sum, want)
 	}
 
-	list, err := h.records.ListByDay("")
+	list, err := h.records.ListByDay("", 0)
 	if err != nil {
 		t.Fatalf("ListByDay(\"\") 失败: %v", err)
 	}
@@ -236,9 +255,9 @@ func TestService_StopTooShortReportsReason(t *testing.T) {
 		t.Errorf("Stop() = %+v, 期望未保存 + too-short", out)
 	}
 
-	sum, err := h.records.TodaySummary()
+	sum, err := h.records.DaySummary("", 0)
 	if err != nil {
-		t.Fatalf("TodaySummary() 失败: %v", err)
+		t.Fatalf("DaySummary() 失败: %v", err)
 	}
 	if sum.Count != 0 {
 		t.Errorf("记录条数 = %d, 期望 0", sum.Count)
@@ -266,9 +285,9 @@ func TestService_DiscardLeavesNothing(t *testing.T) {
 	if state.State != string(timer.StateIdle) {
 		t.Errorf("状态 = %s, 期望 idle", state.State)
 	}
-	sum, err := h.records.TodaySummary()
+	sum, err := h.records.DaySummary("", 0)
 	if err != nil {
-		t.Fatalf("TodaySummary() 失败: %v", err)
+		t.Fatalf("DaySummary() 失败: %v", err)
 	}
 	if sum.Count != 0 {
 		t.Errorf("放弃后记录条数 = %d, 期望 0", sum.Count)
@@ -290,9 +309,9 @@ func TestService_DeleteSession(t *testing.T) {
 	if err := h.records.DeleteSession(out.Session.ID); err != nil {
 		t.Fatalf("DeleteSession() 失败: %v", err)
 	}
-	sum, err := h.records.TodaySummary()
+	sum, err := h.records.DaySummary("", 0)
 	if err != nil {
-		t.Fatalf("TodaySummary() 失败: %v", err)
+		t.Fatalf("DaySummary() 失败: %v", err)
 	}
 	if sum.Count != 0 {
 		t.Errorf("删除后记录条数 = %d, 期望 0", sum.Count)
@@ -309,7 +328,7 @@ func TestService_DeleteSession(t *testing.T) {
 func TestService_ListByDayRejectsBadDate(t *testing.T) {
 	h := newHarness(t)
 
-	list, err := h.records.ListByDay("")
+	list, err := h.records.ListByDay("", 0)
 	if err != nil {
 		t.Fatalf("ListByDay(空) 失败: %v", err)
 	}
@@ -320,13 +339,13 @@ func TestService_ListByDayRejectsBadDate(t *testing.T) {
 		t.Errorf("空日列表长度 = %d, 期望 0", len(list))
 	}
 
-	if _, err := h.records.ListByDay("2026/05/01"); err == nil {
+	if _, err := h.records.ListByDay("2026/05/01", 0); err == nil {
 		t.Error("错误格式的日期应报错")
 	}
-	if _, err := h.records.ListByDay("2026-5-1"); err == nil {
+	if _, err := h.records.ListByDay("2026-5-1", 0); err == nil {
 		t.Error("非零填充的日期应报错")
 	}
-	if _, err := h.records.ListByDay("2026-05-01"); err != nil {
+	if _, err := h.records.ListByDay("2026-05-01", 0); err != nil {
 		t.Errorf("合法日期报错: %v", err)
 	}
 }
@@ -340,7 +359,7 @@ func TestService_SettingsRoundTripAndNormalize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() 失败: %v", err)
 	}
-	if got.BreakIntervalMin != settings.DefaultBreakIntervalMin || got.Theme != settings.ThemeSystem {
+	if got.BreakIntervalMin != settings.DefaultBreakIntervalMin || got.Theme != settings.Defaults().Theme {
 		t.Errorf("默认设置 = %+v", got)
 	}
 
@@ -512,7 +531,7 @@ func TestService_RecoveryAutoStopEmitsRecordsChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newBackend() 失败: %v", err)
 	}
-	if _, err := first.timer.Start(); err != nil {
+	if _, err := first.timer.Start(0); err != nil {
 		t.Fatalf("Start() 失败: %v", err)
 	}
 	clk.Advance(timer.TickInterval)
@@ -544,7 +563,7 @@ func TestService_RecoveryAutoStopEmitsRecordsChanged(t *testing.T) {
 	if spy.count(eventRecordsChange) == 0 {
 		t.Error("恢复结算后应发出 records:changed")
 	}
-	sum, err := second.db.SummaryByDay(t0.Format(layoutDateKey))
+	sum, err := second.db.SummaryByDay(t0.Format(layoutDateKey), 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay() 失败: %v", err)
 	}

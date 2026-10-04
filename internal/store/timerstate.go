@@ -10,9 +10,9 @@ import (
 func (d *DB) LoadTimerState() (TimerStateRow, error) {
 	var s TimerStateRow
 	err := d.sql.QueryRow(
-		`SELECT state, started_at, last_resumed_at, accumulated_sec
+		`SELECT state, started_at, last_resumed_at, accumulated_sec, plan_id
 		   FROM timer_state WHERE id = 1`,
-	).Scan(&s.State, &s.StartedAt, &s.LastResumedAt, &s.AccumulatedSec)
+	).Scan(&s.State, &s.StartedAt, &s.LastResumedAt, &s.AccumulatedSec, &s.PlanID)
 	if errors.Is(err, sql.ErrNoRows) {
 		// 迁移里已经种过这一行，走到这里说明库被外部改坏了。
 		return TimerStateRow{}, fmt.Errorf("计时状态缺失: %w", ErrNotFound)
@@ -27,9 +27,9 @@ func (d *DB) LoadTimerState() (TimerStateRow, error) {
 func (d *DB) SaveTimerState(s TimerStateRow) error {
 	res, err := d.sql.Exec(
 		`UPDATE timer_state
-		    SET state = ?, started_at = ?, last_resumed_at = ?, accumulated_sec = ?
+		    SET state = ?, started_at = ?, last_resumed_at = ?, accumulated_sec = ?, plan_id = ?
 		  WHERE id = 1`,
-		s.State, s.StartedAt, s.LastResumedAt, s.AccumulatedSec,
+		s.State, s.StartedAt, s.LastResumedAt, s.AccumulatedSec, s.PlanID,
 	)
 	if err != nil {
 		return fmt.Errorf("保存计时状态失败: %w", err)

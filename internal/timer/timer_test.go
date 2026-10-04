@@ -92,7 +92,7 @@ func newService(t *testing.T, db *store.DB, clock *fakeClock) *Service {
 
 func mustStart(t *testing.T, s *Service) Snapshot {
 	t.Helper()
-	snap, err := s.Start()
+	snap, err := s.Start(0)
 	if err != nil {
 		t.Fatalf("Start() 失败: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestStart_WhenRunning_Errors(t *testing.T) {
 	s := newService(t, db, clock)
 	mustStart(t, s)
 
-	if _, err := s.Start(); err != ErrAlreadyRunning {
+	if _, err := s.Start(0); err != ErrAlreadyRunning {
 		t.Errorf("第二次 Start() error = %v, 期望 ErrAlreadyRunning", err)
 	}
 
@@ -117,7 +117,7 @@ func TestStart_WhenRunning_Errors(t *testing.T) {
 	if _, err := s.Pause(); err != nil {
 		t.Fatalf("Pause() 失败: %v", err)
 	}
-	if _, err := s.Start(); err != ErrAlreadyRunning {
+	if _, err := s.Start(0); err != ErrAlreadyRunning {
 		t.Errorf("暂停态 Start() error = %v, 期望 ErrAlreadyRunning", err)
 	}
 }
@@ -223,7 +223,7 @@ func TestStop_PersistsExactlyOneRow(t *testing.T) {
 		t.Fatal("Stop() 没有返回记录")
 	}
 
-	sum, err := db.SummaryByDay(dateOf(t0))
+	sum, err := db.SummaryByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay() 失败: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestStop_PersistsExactlyOneRow(t *testing.T) {
 	} else if st.State != string(StateIdle) || st.AccumulatedSec != 0 {
 		t.Errorf("落库计时状态 = %+v, 期望 idle/0", st)
 	}
-	rows, err := db.SessionsByDay(dateOf(t0))
+	rows, err := db.SessionsByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SessionsByDay() 失败: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestStop_BelowMinDuration_Discards(t *testing.T) {
 		t.Errorf("丢弃后状态 = %s, 期望 idle", out.Snapshot.State)
 	}
 
-	sum, err := db.SummaryByDay(dateOf(t0))
+	sum, err := db.SummaryByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay() 失败: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestDiscard_WritesNothing(t *testing.T) {
 		t.Fatalf("Discard() 失败: %v", err)
 	}
 
-	sum, err := db.SummaryByDay(dateOf(t0))
+	sum, err := db.SummaryByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay() 失败: %v", err)
 	}
@@ -550,14 +550,14 @@ func TestRecover_GapBeyondAbandon_AutoStops(t *testing.T) {
 		t.Errorf("恢复后状态 = %s, 期望 idle", out.Snapshot.State)
 	}
 
-	sum, err := db.SummaryByDay(dateOf(t0))
+	sum, err := db.SummaryByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay() 失败: %v", err)
 	}
 	if sum.Count != 1 || sum.TotalSec != 30 {
 		t.Errorf("落库汇总 = %+v, 期望 1 条 30s", sum)
 	}
-	rows, err := db.SessionsByDay(dateOf(t0))
+	rows, err := db.SessionsByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SessionsByDay() 失败: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestRecover_GapBeyondAbandon_TooShortNotSaved(t *testing.T) {
 	if out.Action != RecoveryAutoStopped || out.Saved {
 		t.Errorf("Recover() = %+v, 期望 auto-stopped 且未保存", out)
 	}
-	sum, err := db.SummaryByDay(dateOf(t0))
+	sum, err := db.SummaryByDay(dateOf(t0), 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay() 失败: %v", err)
 	}
@@ -762,7 +762,7 @@ func TestCallbacks_DoNotDeadlock(t *testing.T) {
 	errc := make(chan error, 1)
 	go func() {
 		clock.Advance(time.Second)
-		_, err := s.Start()
+		_, err := s.Start(0)
 		errc <- err
 	}()
 
@@ -779,5 +779,169 @@ func TestCallbacks_DoNotDeadlock(t *testing.T) {
 	case <-called:
 	case <-time.After(5 * time.Second):
 		t.Fatal("状态回调没有被触发")
+	}
+}
+
+// ---------------------------------------------------------------- 计划透传
+
+// 计时器不认识计划语义，但必须原样带着它走完整个生命周期。
+func TestPlan_TravelsThroughSession(t *testing.T) {
+	db := newTestDB(t)
+	clock := newFakeClock(t0)
+	s := newService(t, db, clock)
+
+	const planID = 42
+	snap, err := s.Start(planID)
+	if err != nil {
+		t.Fatalf("Start(%d) 失败: %v", planID, err)
+	}
+	if snap.PlanID != planID {
+		t.Fatalf("Start() 后的 PlanID = %d, 期望 %d", snap.PlanID, planID)
+	}
+
+	// 暂停 / 恢复都不该把计划弄丢。
+	clock.Advance(10 * time.Second)
+	if _, err := s.Pause(); err != nil {
+		t.Fatalf("Pause() 失败: %v", err)
+	}
+	if got := s.Snapshot().PlanID; got != planID {
+		t.Errorf("暂停后 PlanID = %d, 期望 %d", got, planID)
+	}
+	if _, err := s.Resume(); err != nil {
+		t.Fatalf("Resume() 失败: %v", err)
+	}
+	if got := s.Snapshot().PlanID; got != planID {
+		t.Errorf("恢复后 PlanID = %d, 期望 %d", got, planID)
+	}
+
+	clock.Advance(10 * time.Second)
+	out, err := s.Stop()
+	if err != nil {
+		t.Fatalf("Stop() 失败: %v", err)
+	}
+	if !out.Saved || out.Session == nil {
+		t.Fatalf("Stop() = %+v", out)
+	}
+	if out.Session.PlanID != planID {
+		t.Errorf("落库记录的 PlanID = %d, 期望 %d", out.Session.PlanID, planID)
+	}
+
+	// 库里也要是同一个值。
+	rows, err := db.SessionsByDay(dateOf(t0), 0)
+	if err != nil {
+		t.Fatalf("SessionsByDay() 失败: %v", err)
+	}
+	if len(rows) != 1 || rows[0].PlanID != planID {
+		t.Errorf("库里的 PlanID 不对: %+v", rows)
+	}
+	// 按该计划能筛出来。
+	filtered, err := db.SessionsByDay(dateOf(t0), planID)
+	if err != nil {
+		t.Fatalf("SessionsByDay(筛选) 失败: %v", err)
+	}
+	if len(filtered) != 1 {
+		t.Errorf("按计划筛选 = %d 条, 期望 1", len(filtered))
+	}
+
+	// 结束之后计时状态里的计划要清零，免得下一次"未选计划"却继承了旧值。
+	st, err := db.LoadTimerState()
+	if err != nil {
+		t.Fatalf("LoadTimerState() 失败: %v", err)
+	}
+	if st.PlanID != 0 {
+		t.Errorf("会话结束后 timer_state.PlanID = %d, 期望 0", st.PlanID)
+	}
+}
+
+// 次数过短被丢弃时，计划也不该残留在计时状态里。
+func TestPlan_ClearedOnDiscard(t *testing.T) {
+	db := newTestDB(t)
+	clock := newFakeClock(t0)
+	s := newService(t, db, clock)
+
+	if _, err := s.Start(7); err != nil {
+		t.Fatalf("Start() 失败: %v", err)
+	}
+	clock.Advance(30 * time.Second)
+	if _, err := s.Discard(); err != nil {
+		t.Fatalf("Discard() 失败: %v", err)
+	}
+	if got := s.Snapshot().PlanID; got != 0 {
+		t.Errorf("Discard 后 PlanID = %d, 期望 0", got)
+	}
+	st, err := db.LoadTimerState()
+	if err != nil {
+		t.Fatalf("LoadTimerState() 失败: %v", err)
+	}
+	if st.PlanID != 0 {
+		t.Errorf("Discard 后 timer_state.PlanID = %d, 期望 0", st.PlanID)
+	}
+}
+
+// 崩溃恢复：继续计时的分支要把计划带回来。
+func TestPlan_RecoverContinuedKeepsPlan(t *testing.T) {
+	db := newTestDB(t)
+	clock := newFakeClock(t0)
+	first := newService(t, db, clock)
+
+	if _, err := first.Start(9); err != nil {
+		t.Fatalf("Start() 失败: %v", err)
+	}
+	clock.Advance(5 * time.Minute)
+
+	second := newService(t, db, clock)
+	out, err := second.Recover()
+	if err != nil {
+		t.Fatalf("Recover() 失败: %v", err)
+	}
+	if out.Action != RecoveryContinued {
+		t.Fatalf("Action = %s, 期望 %s", out.Action, RecoveryContinued)
+	}
+	if out.Snapshot.PlanID != 9 {
+		t.Errorf("恢复后 PlanID = %d, 期望 9", out.Snapshot.PlanID)
+	}
+}
+
+// 崩溃恢复：过夜被自动结算的分支也要把计划写进记录。
+//
+// 归属的必须是"当时那次会话选的计划"，而不是恢复时刻的当前计划。
+func TestPlan_RecoverAutoStopWritesPlan(t *testing.T) {
+	db := newTestDB(t)
+	clock := newFakeClock(t0)
+	first := newService(t, db, clock)
+
+	const planID = 5
+	if _, err := first.Start(planID); err != nil {
+		t.Fatalf("Start() 失败: %v", err)
+	}
+	clock.Advance(30 * time.Second)
+	if _, err := first.Tick(); err != nil {
+		t.Fatalf("Tick() 失败: %v", err)
+	}
+
+	// 过夜。
+	clock.Advance(10 * time.Hour)
+
+	second := newService(t, db, clock)
+	out, err := second.Recover()
+	if err != nil {
+		t.Fatalf("Recover() 失败: %v", err)
+	}
+	if !out.Saved {
+		t.Fatalf("Recover() = %+v, 期望落库", out)
+	}
+
+	rows, err := db.SessionsByDay(dateOf(t0), 0)
+	if err != nil {
+		t.Fatalf("SessionsByDay() 失败: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("记录条数 = %d, 期望 1", len(rows))
+	}
+	if rows[0].PlanID != planID {
+		t.Errorf("自动结算记录的 PlanID = %d, 期望 %d", rows[0].PlanID, planID)
+	}
+	if filtered, err := db.SessionsByDay(dateOf(t0), planID); err != nil || len(filtered) != 1 {
+		t.Errorf("按计划筛选自动结算的记录失败: %d 条 (%v)", len(filtered), err)
 	}
 }

@@ -19,6 +19,12 @@ func (s *SettingsService) Get() (SettingsDTO, error) {
 // 对方据此刷新输入框，用户能立刻看到实际生效的值。
 func (s *SettingsService) Save(in SettingsDTO) (SettingsDTO, error) {
 	next := settingsFromDTO(in)
+
+	// CurrentPlanID 由 PlansService.SetCurrent 掌管，不接受界面回传：
+	// 设置页里根本没有这个字段，界面回传的必然是零值，直接采信会把
+	// "当前计划"清掉——表现为用户一保存设置，计时页的计划就没了。
+	next.CurrentPlanID = s.b.currentPlanID()
+
 	if err := next.Validate(); err != nil {
 		return SettingsDTO{}, err
 	}

@@ -37,7 +37,8 @@ var trayIcon []byte
 func init() {
 	// 注册事件的数据类型，绑定生成器据此产出强类型的 TS API。
 	application.RegisterEvent[TimerStateDTO](eventTimerState)
-	application.RegisterEvent[RecordChangeDTO](eventRecordsChange)
+	application.RegisterEvent[ChangedDTO](eventRecordsChange)
+	application.RegisterEvent[ChangedDTO](eventPlansChange)
 	application.RegisterEvent[ReminderEventDTO](eventReminderBreak)
 	application.RegisterEvent[NoticeDTO](eventNotice)
 }
@@ -65,6 +66,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(NewTimerService(b)),
 			application.NewService(NewRecordsService(b)),
+			application.NewService(NewPlansService(b)),
 			application.NewService(NewSettingsService(b)),
 			// 通知服务自己实现了 ServiceStartup/ServiceShutdown：
 			// 注册之后它会在启动时完成 Windows 通知所需的注册。
@@ -82,7 +84,7 @@ func main() {
 			return b.reallyQuitting.Load() || !b.Settings().MinimizeToTray
 		},
 		SingleInstance: &application.SingleInstanceOptions{
-			UniqueID: "com.guxue.goxuetimer",
+			UniqueID: "com.guduxue.guxuetimer",
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
 				// 第二次启动：把已有窗口叫回来，而不是再开一个进程。
 				b.showMainWindow()
@@ -94,15 +96,29 @@ func main() {
 		},
 	})
 
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+	// 窗口尺寸：记录页要同时放柱状图、月历热力图和当日列表，480 宽不够用。
+	cfg := b.Settings()
+	windowOpts := application.WebviewWindowOptions{
 		Title:            appDisplayName,
-		Width:            480,
-		Height:           720,
-		MinWidth:         400,
-		MinHeight:        600,
-		BackgroundColour: application.NewRGB(16, 18, 27),
+		Width:            680,
+		Height:           820,
+		MinWidth:         560,
+		MinHeight:        680,
+		BackgroundColour: application.NewRGB(238, 244, 255),
 		URL:              "/",
-	})
+	}
+	// 窗口级毛玻璃：让桌面透出来并模糊。需要重建窗口才生效，所以是"改了要重启"。
+	//
+	// Windows 上 Wails 走的是 SetWindowCompositionAttribute（Win10 回退路径）
+	// 或 DWM 的 Mica/Acrylic（Win11 22621+），前者是未公开 API，
+	// 个别显卡/驱动上会出现缩放卡顿或整窗发黑，所以默认关闭。
+	if cfg.WindowTranslucent {
+		windowOpts.BackgroundType = application.BackgroundTypeTranslucent
+		// 官方文档说 Acrylic 需要 Win11 22621+；本机是 Win10，
+		// Wails 会回退到 SetWindowCompositionAttribute 的 blur-behind。
+		windowOpts.Windows.BackdropType = application.Acrylic
+	}
+	window := app.Window.NewWithOptions(windowOpts)
 
 	// 关窗的处理：默认隐藏到托盘，用户关了"最小化到托盘"就真的退出。
 	//

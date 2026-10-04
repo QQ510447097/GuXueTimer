@@ -211,11 +211,13 @@ if (-not $script:python) {
 } elseif (Test-Path $dbPath) {
     $info = Get-DbInfo
 
-    Assert-That ($info['user_version'] -eq '1') "schema 版本 = 1（实际 '$($info['user_version'])'）"
+    Assert-That ($info['user_version'] -eq '2') "schema 版本 = 2（实际 '$($info['user_version'])'）"
 
-    foreach ($t in @('sessions', 'settings', 'timer_state')) {
+    foreach ($t in @('sessions', 'settings', 'timer_state', 'plans')) {
         Assert-That (($info['tables'] -split ',') -contains $t) "存在表 $t"
     }
+
+    Assert-That ($info['sessions_has_plan_id'] -eq '1') 'sessions 有 plan_id 列'
 
     Assert-That ($info['journal_mode'].ToLower() -eq 'wal') "journal_mode = wal（实际 '$($info['journal_mode'])'）"
 
@@ -355,6 +357,68 @@ if ($script:python) {
     Assert-That ($kept -match 'smokeMarker=keep-me') "搬过去的是同一份数据库（$kept）"
 } else {
     Write-Skip '找不到 python，无法留标记，跳过该场景'
+}
+
+# ---------------------------------------------------------------- 8. v1 库迁移
+
+Write-Host "`n[8] v1 库升级到 v2（旧记录一条不丢）"
+
+if ($script:python) {
+    Stop-App
+    # 从零造一个 v1 时代的库：v1 建表语句 + user_version=1 + 一条旧记录 + 旧设置。
+    if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+
+    $seeded = (& $script:python $script:dbHelper seed-v1-db $dbPath 2>&1) -join ' '
+    Assert-That ($seeded -match 'user_version=1') "已造好 v1 库（$seeded）"
+
+    # 启动一次，让应用自己做迁移。
+    $proc = Start-App
+    Assert-That ($null -ne (Wait-MainWindow)) 'v1 库上应用能正常启动'
+    Stop-App
+
+    $after = Get-DbInfo
+    Assert-That ($after['user_version'] -eq '2') "迁移后 schema 版本 = 2（实际 '$($after['user_version'])'）"
+    Assert-That ($after['sessions_has_plan_id'] -eq '1') '迁移后 sessions 有 plan_id 列'
+    Assert-That (($after['tables'] -split ',') -contains 'plans') '迁移后有了 plans 表'
+
+    # 旧记录必须还在，并且归为"未分类"。
+    Assert-That ($after['last_session_sec'] -eq '1800') "旧记录时长保住了（实际 '$($after['last_session_sec'])'）"
+    Assert-That ($after['last_session_note'] -match 'v1') "旧记录内容保住了（实际 '$($after['last_session_note'])'）"
+    Assert-That ($after['last_session_plan_id'] -eq 'NULL') "旧记录归为未分类（实际 '$($after['last_session_plan_id'])'）"
+
+    # 旧设置也必须还在（用户改过的主题不能被重置）。
+    $theme = (& $script:python $script:dbHelper get-setting $dbPath theme 2>&1) -join ''
+    Assert-That ($theme -match 'theme=dark') "旧设置保住了（$theme）"
+} else {
+    Write-Skip '找不到 python，无法造 v1 库，跳过该场景'
+}
+
+# ---------------------------------------------------------------- 9. 计划落到记录
+
+Write-Host "`n[9] 计划一路落到记录里（timer_state -> 恢复 -> 自动结算 -> sessions.plan_id）"
+
+if ($script:python) {
+    Stop-App
+    # 预置"一个计划 + 一段 10 小时前中断的会话"：启动时恢复逻辑会判定中断过久，
+    # 自动结算并落库。整条通路不需要任何界面交互就能验证。
+    $seeded = (& $script:python $script:dbHelper seed-plan-and-stale-running $dbPath 10 2>&1) -join ' '
+    Assert-That ($seeded -match 'plan_id=\d+') "已预置计划与中断会话（$seeded）"
+    $planId = [regex]::Match($seeded, 'plan_id=(\d+)').Groups[1].Value
+
+    $proc = Start-App
+    Assert-That ($null -ne (Wait-MainWindow)) '预置状态下应用能正常启动'
+    # 自动结算发生在启动阶段，但落库要等恢复流程跑完，稍等一下再查。
+    Start-Sleep -Seconds 3
+    Stop-App
+
+    $after = Get-DbInfo
+    Assert-That ($after['last_session_sec'] -eq '600') "自动结算写入了记录（实际 '$($after['last_session_sec'])' 秒）"
+    Assert-That ($after['last_session_source'] -eq 'recovered') "记录来源是 recovered（实际 '$($after['last_session_source'])'）"
+    Assert-That ($after['last_session_plan_id'] -eq $planId) "记录归属到预置的计划 $planId（实际 '$($after['last_session_plan_id'])'）"
+    Assert-That ($after['timer_state'] -eq 'idle') "结算后计时状态回到 idle（实际 '$($after['timer_state'])'）"
+} else {
+    Write-Skip '找不到 python，无法预置计划，跳过该场景'
 }
 
 Stop-App

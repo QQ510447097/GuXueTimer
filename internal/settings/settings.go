@@ -15,6 +15,8 @@ const (
 	KeyBreakIntervalMin     = "breakIntervalMin"
 	KeyMinimizeToTray       = "minimizeToTray"
 	KeyTheme                = "theme"
+	KeyCurrentPlanID        = "currentPlanId"
+	KeyWindowTranslucent    = "windowTranslucent"
 )
 
 // 主题取值。
@@ -22,6 +24,10 @@ const (
 	ThemeSystem = "system"
 	ThemeLight  = "light"
 	ThemeDark   = "dark"
+	// DefaultTheme 同时用于"首次启动的默认值"和"读到无法识别的值时的回退值"。
+	// 两处必须是同一个：否则用户把设置文件改坏之后，界面会变成另一种外观，
+	// 让人以为主题被重置成了别的东西。软件的主色调是蓝白，两者都是浅色。
+	DefaultTheme = ThemeLight
 )
 
 // 休息提醒间隔的合法区间（分钟）。
@@ -37,6 +43,14 @@ type Settings struct {
 	BreakIntervalMin     int
 	MinimizeToTray       bool
 	Theme                string
+	// CurrentPlanID 是当前选中的学习计划；0 表示还没有（首次启动）。
+	//
+	// 它是"设置"而不是"计划表的一列"：这是用户的当下选择，
+	// 与计划本身的属性无关；计划被归档/删除时由 backend 负责纠正。
+	CurrentPlanID int64
+	// WindowTranslucent 让整个窗口半透明（桌面透出来并模糊）。
+	// 需要重建窗口才能生效，所以改完要重启。
+	WindowTranslucent bool
 }
 
 // Defaults 返回首次启动使用的默认设置。
@@ -45,7 +59,7 @@ func Defaults() Settings {
 		BreakReminderEnabled: true,
 		BreakIntervalMin:     DefaultBreakIntervalMin,
 		MinimizeToTray:       true,
-		Theme:                ThemeSystem,
+		Theme:                DefaultTheme,
 	}
 }
 
@@ -62,10 +76,13 @@ func (s Settings) Normalize() Settings {
 	if s.BreakIntervalMin < MinBreakIntervalMin || s.BreakIntervalMin > MaxBreakIntervalMin {
 		s.BreakIntervalMin = DefaultBreakIntervalMin
 	}
+	if s.CurrentPlanID < 0 {
+		s.CurrentPlanID = 0
+	}
 	switch s.Theme {
 	case ThemeSystem, ThemeLight, ThemeDark:
 	default:
-		s.Theme = ThemeSystem
+		s.Theme = DefaultTheme
 	}
 	return s
 }
@@ -96,6 +113,16 @@ func Load(st *store.DB) (Settings, error) {
 	if v, ok := raw[KeyTheme]; ok && v != "" {
 		out.Theme = v
 	}
+	if v, ok := raw[KeyCurrentPlanID]; ok {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			out.CurrentPlanID = n
+		}
+	}
+	if v, ok := raw[KeyWindowTranslucent]; ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			out.WindowTranslucent = b
+		}
+	}
 
 	return out.Normalize(), nil
 }
@@ -108,6 +135,8 @@ func (s Settings) Save(st *store.DB) error {
 		KeyBreakIntervalMin:     strconv.Itoa(n.BreakIntervalMin),
 		KeyMinimizeToTray:       strconv.FormatBool(n.MinimizeToTray),
 		KeyTheme:                n.Theme,
+		KeyCurrentPlanID:        strconv.FormatInt(n.CurrentPlanID, 10),
+		KeyWindowTranslucent:    strconv.FormatBool(n.WindowTranslucent),
 	})
 }
 

@@ -62,6 +62,11 @@ type Snapshot struct {
 	StartedAt      time.Time // 本次会话开始时刻；idle 时为零值
 	AccumulatedSec int64     // 已确定的时长，不含正在走的这一段
 	RunningSince   time.Time // 最近一次进入 running 的时刻；仅 running 时有意义
+	// PlanID 是本次会话归属的学习计划；0 表示未分类。
+	//
+	// 计时器不解释这个值，只负责原样携带：哪些计划可选、是否必须选一个，
+	// 都是服务层的产品规则，不该渗到这里。
+	PlanID int64
 }
 
 // ElapsedSec 返回 now 时刻的会话总时长（秒）。

@@ -48,6 +48,9 @@ export function Resume(): $CancellablePromise<$models.TimerStateDTO> {
 
 /**
  * Start 开始一次新的学习会话。
+ * 
+ * 归属的计划由后端解析，界面不传：这样托盘的「开始」也不需要先问界面
+ * 当前选的是哪个计划，只有一处真相。
  */
 export function Start(): $CancellablePromise<$models.TimerStateDTO> {
     return $Call.ByID(3098818580);

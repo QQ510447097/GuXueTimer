@@ -13,7 +13,8 @@ declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "notice": main$0.NoticeDTO;
-            "records:changed": main$0.RecordChangeDTO;
+            "plans:changed": main$0.ChangedDTO;
+            "records:changed": main$0.ChangedDTO;
             "reminder:break": main$0.ReminderEventDTO;
             "timer:state": main$0.TimerStateDTO;
         }

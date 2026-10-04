@@ -15,19 +15,18 @@ type RecordsService struct {
 // NewRecordsService 构造记录服务。
 func NewRecordsService(b *backend) *RecordsService { return &RecordsService{b: b} }
 
-// ListByDay 返回某天（YYYY-MM-DD）的全部记录，按开始时间升序。
-// date 传空串表示今天。
-func (s *RecordsService) ListByDay(date string) ([]SessionDTO, error) {
+// ListByDay 返回某天（YYYY-MM-DD）的记录，按开始时间升序。
+// date 传空串表示今天；planID 传 0 表示不按计划筛选。
+func (s *RecordsService) ListByDay(date string, planID int64) ([]SessionDTO, error) {
 	key, err := s.resolveDate(date)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.b.db.SessionsByDay(key)
+	rows, err := s.b.db.SessionsByDay(key, planID)
 	if err != nil {
 		return nil, err
 	}
-	// 显式构造非 nil 切片：nil 切片会被序列化成 null，
-	// 前端的 .map 就会炸。
+	// 显式构造非 nil 切片：nil 切片会被序列化成 null，前端的 .map 就会炸。
 	out := make([]SessionDTO, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, sessionDTOFrom(row))
@@ -35,14 +34,46 @@ func (s *RecordsService) ListByDay(date string) ([]SessionDTO, error) {
 	return out, nil
 }
 
-// TodaySummary 返回今天的汇总。
-func (s *RecordsService) TodaySummary() (DaySummaryDTO, error) {
-	key := s.b.clock().Format(layoutDateKey)
-	sum, err := s.b.db.SummaryByDay(key)
+// DaySummary 返回某天的汇总。date 传空串表示今天，planID 传 0 表示全部计划。
+//
+// 取代了原来的 TodaySummary：计时页要同时显示"今日全部"和"本计划今日"，
+// 同一个方法用不同 planID 调两次，比维护两个方法干净。
+func (s *RecordsService) DaySummary(date string, planID int64) (DaySummaryDTO, error) {
+	key, err := s.resolveDate(date)
+	if err != nil {
+		return DaySummaryDTO{}, err
+	}
+	sum, err := s.b.db.SummaryByDay(key, planID)
 	if err != nil {
 		return DaySummaryDTO{}, err
 	}
 	return daySummaryDTOFrom(sum), nil
+}
+
+// DailyTotals 返回 [from, to] 闭区间内每天的合计，柱状图与月历热力图共用。
+//
+// 只返回有记录的日子；补零由前端按自己的区间做，比让 SQL 造一串日期干净。
+func (s *RecordsService) DailyTotals(from string, to string, planID int64) ([]DailyTotalDTO, error) {
+	fromKey, err := s.resolveDate(from)
+	if err != nil {
+		return nil, err
+	}
+	toKey, err := s.resolveDate(to)
+	if err != nil {
+		return nil, err
+	}
+	if fromKey > toKey {
+		return nil, fmt.Errorf("起始日期 %s 晚于结束日期 %s", fromKey, toKey)
+	}
+	rows, err := s.b.db.DailyTotals(fromKey, toKey, planID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DailyTotalDTO, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, dailyTotalDTOFrom(row))
+	}
+	return out, nil
 }
 
 // DeleteSession 删除一条记录。

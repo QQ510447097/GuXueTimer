@@ -109,7 +109,7 @@ func TestInsertSession_AndSessionsByDay(t *testing.T) {
 		t.Fatalf("InsertSession() 返回 id = %d, 期望正数", id)
 	}
 
-	got, err := db.SessionsByDay("2026-05-01")
+	got, err := db.SessionsByDay("2026-05-01", 0)
 	if err != nil {
 		t.Fatalf("SessionsByDay() 失败: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestInsertSession_AndSessionsByDay(t *testing.T) {
 		t.Errorf("记录 = %+v, 与写入不一致", got[0])
 	}
 
-	empty, err := db.SessionsByDay("2026-05-02")
+	empty, err := db.SessionsByDay("2026-05-02", 0)
 	if err != nil {
 		t.Fatalf("SessionsByDay(空日) 失败: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestSessionsByDay_MidnightBoundary(t *testing.T) {
 	mustInsert("2026-05-02T00:00:00+08:00", "2026-05-02T00:30:00+08:00", 1800)
 	mustInsert("2026-05-02T08:00:00+08:00", "2026-05-02T08:10:00+08:00", 600)
 
-	day1, err := db.SessionsByDay("2026-05-01")
+	day1, err := db.SessionsByDay("2026-05-01", 0)
 	if err != nil {
 		t.Fatalf("SessionsByDay(05-01) 失败: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestSessionsByDay_MidnightBoundary(t *testing.T) {
 		t.Errorf("05-01 记录 = %+v, 期望只有跨零点的那 1 条(2400s)", day1)
 	}
 
-	day2, err := db.SessionsByDay("2026-05-02")
+	day2, err := db.SessionsByDay("2026-05-02", 0)
 	if err != nil {
 		t.Fatalf("SessionsByDay(05-02) 失败: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestSessionsByDay_MidnightBoundary(t *testing.T) {
 		t.Errorf("05-02 首条 = %s, 期望 00:00:00 那条", day2[0].StartedAt)
 	}
 
-	sum1, err := db.SummaryByDay("2026-05-01")
+	sum1, err := db.SummaryByDay("2026-05-01", 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay(05-01) 失败: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestSessionsByDay_MidnightBoundary(t *testing.T) {
 		t.Errorf("05-01 汇总 = %+v, 期望 total=2400 count=1", sum1)
 	}
 
-	sum2, err := db.SummaryByDay("2026-05-02")
+	sum2, err := db.SummaryByDay("2026-05-02", 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay(05-02) 失败: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestSessionsByDay_MidnightBoundary(t *testing.T) {
 func TestSummaryByDay_EmptyDayIsZeroNotError(t *testing.T) {
 	db := newTestDB(t)
 
-	sum, err := db.SummaryByDay("2026-01-01")
+	sum, err := db.SummaryByDay("2026-01-01", 0)
 	if err != nil {
 		t.Fatalf("SummaryByDay(空日) 失败: %v", err)
 	}

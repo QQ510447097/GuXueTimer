@@ -17,6 +17,25 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * DailyTotals 返回 [from, to] 闭区间内每天的合计，柱状图与月历热力图共用。
+ * 
+ * 只返回有记录的日子；补零由前端按自己的区间做，比让 SQL 造一串日期干净。
+ */
+export function DailyTotals($from: string, to: string, planID: number): $CancellablePromise<$models.DailyTotalDTO[] | null> {
+    return $Call.ByID(3369012187, $from, to, planID);
+}
+
+/**
+ * DaySummary 返回某天的汇总。date 传空串表示今天，planID 传 0 表示全部计划。
+ * 
+ * 取代了原来的 TodaySummary：计时页要同时显示"今日全部"和"本计划今日"，
+ * 同一个方法用不同 planID 调两次，比维护两个方法干净。
+ */
+export function DaySummary(date: string, planID: number): $CancellablePromise<$models.DaySummaryDTO> {
+    return $Call.ByID(4152832329, date, planID);
+}
+
+/**
  * DeleteSession 删除一条记录。
  */
 export function DeleteSession(id: number): $CancellablePromise<void> {
@@ -24,16 +43,9 @@ export function DeleteSession(id: number): $CancellablePromise<void> {
 }
 
 /**
- * ListByDay 返回某天（YYYY-MM-DD）的全部记录，按开始时间升序。
- * date 传空串表示今天。
+ * ListByDay 返回某天（YYYY-MM-DD）的记录，按开始时间升序。
+ * date 传空串表示今天；planID 传 0 表示不按计划筛选。
  */
-export function ListByDay(date: string): $CancellablePromise<$models.SessionDTO[] | null> {
-    return $Call.ByID(1470842404, date);
-}
-
-/**
- * TodaySummary 返回今天的汇总。
- */
-export function TodaySummary(): $CancellablePromise<$models.DaySummaryDTO> {
-    return $Call.ByID(3315700132);
+export function ListByDay(date: string, planID: number): $CancellablePromise<$models.SessionDTO[] | null> {
+    return $Call.ByID(1470842404, date, planID);
 }

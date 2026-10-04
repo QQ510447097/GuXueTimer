@@ -40,7 +40,7 @@ func newTrayController(app *application.App, b *backend, icon []byte) *trayContr
 	menu.AddSeparator()
 
 	t.startItem = menu.Add("开始")
-	t.startItem.OnClick(func(*application.Context) { b.runFromTray(b.timer.Start) })
+	t.startItem.OnClick(func(*application.Context) { b.startFromTray() })
 
 	t.pauseItem = menu.Add("暂停")
 	t.pauseItem.OnClick(func(*application.Context) { b.runFromTray(b.timer.Pause) })
@@ -71,7 +71,13 @@ func (t *trayController) update(dto TimerStateDTO) {
 	total := dto.TodayTotalSec + dto.CurrentSec
 	label := "今日累计 " + formatDurationCN(total)
 	t.statusItem.SetLabel(label)
-	t.tray.SetTooltip(appDisplayName + " · " + label)
+
+	// 托盘提示里带上当前计划：一眼就能确认"现在记的是哪一科"。
+	tip := appDisplayName
+	if dto.PlanName != "" {
+		tip += " · " + dto.PlanName
+	}
+	t.tray.SetTooltip(tip + " · " + label)
 
 	running := dto.State == string(timer.StateRunning)
 	idle := dto.State == string(timer.StateIdle)

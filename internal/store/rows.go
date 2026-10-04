@@ -16,6 +16,11 @@ type SessionRow struct {
 	Note        string
 	Source      string // timer | recovered（预留给未来的补录）
 	CreatedAt   string // RFC3339
+	// PlanID 是这条记录归属的学习计划；0 表示未分类（库里存 NULL）。
+	//
+	// 用 0 而不是 NULL 贯穿应用层：Go 里处理可空 int64 会一路传染到 DTO，
+	// 而 "0 = 没有计划" 在本应用里没有歧义（计划 id 从 1 开始）。
+	PlanID int64
 }
 
 // TimerStateRow 是 timer_state 单行表的快照。
@@ -24,6 +29,22 @@ type TimerStateRow struct {
 	StartedAt      string // 本次会话开始时间；idle 时为空串
 	LastResumedAt  string // 最近一次进入 running 的时刻；仅 running 时有意义
 	AccumulatedSec int64  // 已确定的时长，不含当前正在走的这一段
+	PlanID         int64  // 本次会话归属的计划；0 表示未选
+}
+
+// PlanRow 是一个学习计划，可以带上统计（只有 ListPlans 会填统计字段）。
+type PlanRow struct {
+	ID        int64
+	Name      string
+	Color     string
+	SortOrder int
+	Archived  bool
+	CreatedAt string
+
+	// 统计字段：由 ListPlans 的一次 JOIN 带出；单条读取时保持 0。
+	TodaySec int64
+	TotalSec int64
+	Sessions int64
 }
 
 // DaySummary 是某一天的汇总。
@@ -33,4 +54,14 @@ type DaySummary struct {
 	Count      int64
 	FirstStart string // 当天最早的开始时间；无记录时为空串
 	LastEnd    string // 当天最晚的结束时间；无记录时为空串
+}
+
+// DailyTotal 是某一天的总时长。
+//
+// 柱状图与月历热力图共用它：一次区间查询同时喂两个组件，
+// 缺的日期不在这里补，由前端按区间自行填 0。
+type DailyTotal struct {
+	Date     string // 2006-01-02
+	TotalSec int64
+	Count    int64
 }

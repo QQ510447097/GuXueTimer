@@ -130,7 +130,7 @@ func TestSave_NormalizesBeforePersisting(t *testing.T) {
 	if raw[KeyBreakIntervalMin] != "45" {
 		t.Errorf("落库间隔 = %q, 期望 \"45\"", raw[KeyBreakIntervalMin])
 	}
-	if raw[KeyTheme] != ThemeSystem {
-		t.Errorf("落库主题 = %q, 期望 %q", raw[KeyTheme], ThemeSystem)
+	if raw[KeyTheme] != DefaultTheme {
+		t.Errorf("落库主题 = %q, 期望 %q", raw[KeyTheme], DefaultTheme)
 	}
 }

@@ -18,7 +18,10 @@ const (
 	// 若换成 github.com/mattn/go-sqlite3，这里改成 "sqlite3" 即可。
 	driverName = "sqlite"
 
-	schemaVersion = 1
+	// schemaVersion 是当前 schema 版本。加迁移时，新版本号与对应的 schemaVn
+	// 语句列表要一起加，并且**不要**回头改老的 schemaVn：
+	// 全新库也会按顺序跑完所有版本，改了老的会让全新库与升级库产生分叉。
+	schemaVersion = 2
 )
 
 // ErrNotFound 表示目标记录不存在。
@@ -120,6 +123,34 @@ var schemaV1 = []string{
 	`INSERT OR IGNORE INTO timer_state(id, state) VALUES (1, 'idle')`,
 }
 
+// schemaV2 引入"学习计划"，并让记录与计时状态都能归属到一个计划。
+//
+// 两点刻意的取舍：
+//
+//  1. sessions.plan_id **可空且不加外键**。SQLite 的 ALTER TABLE ADD COLUMN
+//     允许加带 REFERENCES 的可空列，但这里故意不加：完整性由服务层保证
+//     （有记录的计划拒绝删除、只能归档），换来的是"哪怕计划被删，学习记录
+//     也一定写得进去"。时长比约束宝贵。
+//  2. timer_state.plan_id 是 NOT NULL DEFAULT 0，0 表示未选；同样不加外键，
+//     因为 ALTER TABLE 加带 FK 的 NOT NULL 列会被 SQLite 拒绝。
+//
+// 全新库也会跑完 v1 再跑这一段（所以新装用户同样会走一遍 ALTER TABLE），
+// 这正是我们想要的：升级路径与全新安装路径永远一致。
+var schemaV2 = []string{
+	`CREATE TABLE IF NOT EXISTS plans (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT    NOT NULL,
+		color      TEXT    NOT NULL DEFAULT '#3B82F6',
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		archived   INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT    NOT NULL
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_plans_archived ON plans(archived, sort_order)`,
+	`ALTER TABLE sessions ADD COLUMN plan_id INTEGER`,
+	`CREATE INDEX IF NOT EXISTS idx_sessions_plan_id ON sessions(plan_id)`,
+	`ALTER TABLE timer_state ADD COLUMN plan_id INTEGER NOT NULL DEFAULT 0`,
+}
+
 // migrate 依据 PRAGMA user_version 做前向迁移。重复执行是幂等的。
 func (d *DB) migrate() error {
 	tx, err := d.sql.Begin()
@@ -143,9 +174,19 @@ func (d *DB) migrate() error {
 				return fmt.Errorf("迁移 v1 第 %d 条语句失败: %w", i+1, err)
 			}
 		}
-		// PRAGMA 不支持占位符，这里 1 是编译期常量。
 		if _, err := tx.Exec("PRAGMA user_version = 1"); err != nil {
-			return fmt.Errorf("写入 schema 版本失败: %w", err)
+			return fmt.Errorf("写入 schema 版本 1 失败: %w", err)
+		}
+	}
+
+	if version < 2 {
+		for i, stmt := range schemaV2 {
+			if _, err := tx.Exec(stmt); err != nil {
+				return fmt.Errorf("迁移 v2 第 %d 条语句失败: %w", i+1, err)
+			}
+		}
+		if _, err := tx.Exec("PRAGMA user_version = 2"); err != nil {
+			return fmt.Errorf("写入 schema 版本 2 失败: %w", err)
 		}
 	}
 

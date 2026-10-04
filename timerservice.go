@@ -21,8 +21,15 @@ func (s *TimerService) GetState() (TimerStateDTO, error) {
 }
 
 // Start 开始一次新的学习会话。
+//
+// 归属的计划由后端解析，界面不传：这样托盘的「开始」也不需要先问界面
+// 当前选的是哪个计划，只有一处真相。
 func (s *TimerService) Start() (TimerStateDTO, error) {
-	if _, err := s.b.timer.Start(); err != nil {
+	planID, err := s.b.activePlanID()
+	if err != nil {
+		return TimerStateDTO{}, err
+	}
+	if _, err := s.b.timer.Start(planID); err != nil {
 		return TimerStateDTO{}, err
 	}
 	return s.b.stateDTO()

@@ -134,6 +134,9 @@ func (s *Service) recoverLocked() (RecoveryOutcome, string, error) {
 			DurationSec: dur,
 			Source:      "recovered",
 			CreatedAt:   now.Format(recordLayout),
+			// 计划也要跟着恢复：过夜被自动结算的这段时长，
+			// 归属的是当时那次会话选的计划，而不是"现在"的计划。
+			PlanID: s.snap.PlanID,
 		}
 		// FinishSession 是单事务的：要么记录与状态一起落库，要么都不动。
 		id, err := s.st.FinishSession(rec, store.TimerStateRow{State: string(StateIdle)})

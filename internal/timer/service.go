@@ -86,8 +86,8 @@ type StopResult struct {
 	Snapshot    Snapshot
 }
 
-// Start 开始一次新的学习会话。
-func (s *Service) Start() (Snapshot, error) {
+// Start 开始一次新的学习会话。planID 会随会话一路带到落库的记录里。
+func (s *Service) Start(planID int64) (Snapshot, error) {
 	s.mu.Lock()
 	if s.snap.State != StateIdle {
 		snap := s.snap
@@ -96,7 +96,7 @@ func (s *Service) Start() (Snapshot, error) {
 	}
 	now := s.clock()
 	prev, prevCarry := s.snap, s.carryNano
-	s.snap = Snapshot{State: StateRunning, StartedAt: now, RunningSince: now}
+	s.snap = Snapshot{State: StateRunning, StartedAt: now, RunningSince: now, PlanID: planID}
 	s.carryNano = 0
 
 	if err := s.st.SaveTimerState(rowFromSnapshot(s.snap)); err != nil {
@@ -221,6 +221,7 @@ func (s *Service) Stop() (StopResult, error) {
 		DurationSec: dur,
 		Source:      "timer",
 		CreatedAt:   now.Format(recordLayout),
+		PlanID:      s.snap.PlanID,
 	}
 
 	id, err := s.st.FinishSession(rec, store.TimerStateRow{State: string(StateIdle)})
@@ -370,6 +371,7 @@ func snapshotFromRow(row store.TimerStateRow) (Snapshot, bool) {
 			State:          StatePaused,
 			StartedAt:      started,
 			AccumulatedSec: row.AccumulatedSec,
+			PlanID:         row.PlanID,
 		}, false
 
 	case StateRunning:
@@ -383,6 +385,7 @@ func snapshotFromRow(row store.TimerStateRow) (Snapshot, bool) {
 			StartedAt:      started,
 			RunningSince:   resumed,
 			AccumulatedSec: row.AccumulatedSec,
+			PlanID:         row.PlanID,
 		}, false
 
 	default:
@@ -395,6 +398,7 @@ func rowFromSnapshot(s Snapshot) store.TimerStateRow {
 	row := store.TimerStateRow{
 		State:          string(s.State),
 		AccumulatedSec: s.AccumulatedSec,
+		PlanID:         s.PlanID,
 	}
 	if !s.StartedAt.IsZero() {
 		row.StartedAt = s.StartedAt.Format(timeLayout)

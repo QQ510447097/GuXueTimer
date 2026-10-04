@@ -127,13 +127,31 @@ func (b *backend) DBPath() string { return b.db.Path() }
 // Close 关闭数据库连接。
 func (b *backend) Close() error { return b.db.Close() }
 
-// runFromTray 执行一次托盘触发的操作。
+// runFromTray 执行一次托盘触发的操作（暂停 / 继续）。
 //
 // 失败时通过事件告知界面而不是静默吞掉——托盘的失效态很容易被忽略，
 // 用户会遇到"点了没反应"却不知道原因。
 func (b *backend) runFromTray(action func() (timer.Snapshot, error)) {
 	if _, err := action(); err != nil {
 		slog.Warn("托盘操作失败", "err", err)
+		b.emitNotice(timer.NoticeWarning, err.Error())
+	}
+}
+
+// startFromTray 从托盘开始计时：计划同样由后端解析，界面不参与。
+//
+// 还没有计划时不只是报错，还把主窗口叫出来——用户需要先建一个计划，
+// 光弹一条通知他也不知道该去哪儿建。
+func (b *backend) startFromTray() {
+	planID, err := b.activePlanID()
+	if err != nil {
+		slog.Warn("托盘开始计时失败", "err", err)
+		b.emitNotice(timer.NoticeWarning, err.Error())
+		b.showMainWindow()
+		return
+	}
+	if _, err := b.timer.Start(planID); err != nil {
+		slog.Warn("托盘开始计时失败", "err", err)
 		b.emitNotice(timer.NoticeWarning, err.Error())
 	}
 }
@@ -184,12 +202,24 @@ func (b *backend) noteFrontendConnected() {
 func (b *backend) stateDTO() (TimerStateDTO, error) {
 	now := b.clock()
 	snap := b.timer.Snapshot()
-	sum, err := b.db.SummaryByDay(now.Format(layoutDateKey))
+	sum, err := b.db.SummaryByDay(now.Format(layoutDateKey), 0)
 	if err != nil {
 		return TimerStateDTO{}, err
 	}
 	elapsed, interval := b.reminder.Snapshot()
-	return timerStateDTOFrom(snap, now, sum.TotalSec, elapsed, interval), nil
+
+	// 空闲时报"当前计划"（也就是下一段会记到哪），进行中时报这次会话自己的计划。
+	//
+	// 两者在可达状态下是同一个值——计时中禁止切换计划——唯一的差别出现在
+	// "恢复了一段属于已归档计划的会话"这种边角情况：那时该显示的是那段会话
+	// 真正的归属，而不是现在的选择。
+	planID := snap.PlanID
+	if snap.State == timer.StateIdle {
+		planID = b.currentPlanID()
+	}
+	planName, planColor := b.planLabel(planID)
+
+	return timerStateDTOFrom(snap, now, sum.TotalSec, elapsed, interval, planID, planName, planColor), nil
 }
 
 // emitState 把最新状态广播给前端与托盘。
@@ -206,11 +236,104 @@ func (b *backend) emitState() {
 }
 
 func (b *backend) emitRecordsChanged(reason string) {
-	b.emit(eventRecordsChange, RecordChangeDTO{Reason: reason})
+	b.emit(eventRecordsChange, ChangedDTO{Reason: reason})
+}
+
+func (b *backend) emitPlansChanged(reason string) {
+	b.emit(eventPlansChange, ChangedDTO{Reason: reason})
 }
 
 func (b *backend) emitNotice(level timer.NoticeLevel, message string) {
 	b.emit(eventNotice, NoticeDTO{Level: string(level), Message: message})
+}
+
+// timerRunning 表示当前有一次会话正在进行（运行中或已暂停）。
+func (b *backend) timerRunning() bool {
+	return b.timer.Snapshot().State != timer.StateIdle
+}
+
+// currentPlanID 返回当前计划 id；0 表示还没有任何计划。
+func (b *backend) currentPlanID() int64 {
+	return b.Settings().CurrentPlanID
+}
+
+// activePlanID 返回一个**可用**的当前计划：存在且未归档。
+//
+// 只看 CurrentPlanID 不够：它可能在"计划被归档/删除时正好有会话在进行"的
+// 空档里残留成一个失效值（这时 repairCurrentPlan 会刻意不动它）。
+// 开始一次新会话前必须过这一关，否则会把时长记到一个已经不存在的计划上。
+//
+// 顺手纠正设置，所以调用方不需要再自己 repair。
+func (b *backend) activePlanID() (int64, error) {
+	cur := b.currentPlanID()
+	if cur > 0 {
+		if plan, err := b.db.GetPlan(cur); err == nil && !plan.Archived {
+			return cur, nil
+		}
+	}
+	id, ok, err := b.db.FirstActivePlanID()
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, ErrNoPlan
+	}
+	if err := b.setCurrentPlan(id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// setCurrentPlan 只改"当前计划"这一个字段。
+func (b *backend) setCurrentPlan(id int64) error {
+	next := b.Settings()
+	if next.CurrentPlanID == id {
+		return nil
+	}
+	next.CurrentPlanID = id
+	return b.updateSettings(next)
+}
+
+// repairCurrentPlan 确保"当前计划"指向一个存在的、未归档的计划。
+//
+// 三类情况都会走到这里：首次启动、当前计划被归档、当前计划被删除。
+//
+// 会话进行中不偷换：宁可让 currentPlanId 暂时指着一个已归档的计划，
+// 也不要在用户不知情时改变"这段时长算谁的"。等这段会话结束、下一次
+// 计划变更时自然会纠正。
+func (b *backend) repairCurrentPlan() error {
+	cur := b.currentPlanID()
+	if cur > 0 {
+		if plan, err := b.db.GetPlan(cur); err == nil && !plan.Archived {
+			return nil
+		}
+	}
+	if b.timerRunning() {
+		return nil
+	}
+	id, ok, err := b.db.FirstActivePlanID()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		id = 0
+	}
+	return b.setCurrentPlan(id)
+}
+
+// planLabel 把计划 id 解析成给用户看的名字与颜色。
+//
+// 查不到（未分类、计划被删、id 为 0）时返回空串，由界面决定显示什么，
+// 后端不替它编"未分类"这种文案。
+func (b *backend) planLabel(id int64) (name string, color string) {
+	if id <= 0 {
+		return "", ""
+	}
+	plan, err := b.db.GetPlan(id)
+	if err != nil {
+		return "", ""
+	}
+	return plan.Name, plan.Color
 }
 
 // attach 在 application.New 之后、app.Run 之前调用，把回调、托盘与心跳挂上。
@@ -228,6 +351,7 @@ func (b *backend) attach(app *application.App, window *application.WebviewWindow
 		}
 		b.emitState()
 	})
+
 	b.timer.OnNotice(func(level timer.NoticeLevel, message string) {
 		slog.Warn("计时提示", "message", message)
 		b.emitNotice(level, message)
@@ -239,6 +363,12 @@ func (b *backend) attach(app *application.App, window *application.WebviewWindow
 		b.emitNotice(timer.NoticeWarning, "恢复上次计时失败："+err.Error())
 	} else if out.Saved {
 		b.emitRecordsChanged("recovered")
+	}
+
+	// 当前计划可能指向一个已被归档/删除的计划（用户在上次运行里干的），
+	// 启动时纠正一次，让界面一进来就显示对的那个。
+	if err := b.repairCurrentPlan(); err != nil {
+		slog.Warn("纠正当前计划失败", "err", err)
 	}
 
 	// Recover 无论做什么结论，界面和托盘都需要一份当前状态：
