@@ -33,6 +33,12 @@ type backend struct {
 	window *application.WebviewWindow
 	tray   *trayController
 
+	// hwnd 是原生窗口句柄，只在需要动窗口外观时用（标题栏主题）。
+	//
+	// 用 atomic 而不是普通字段：它是 ApplicationStarted 时在主线程写一次、
+	// 之后在设置变更的任意 goroutine 里读。加锁不值当，原子读写最省事。
+	hwnd atomic.Uintptr
+
 	settingsMu sync.RWMutex
 	settings   settings.Settings
 
@@ -157,14 +163,16 @@ func (b *backend) updateSettings(next settings.Settings) error {
 	return nil
 }
 
-// syncWindowBackground 让原生窗口底色跟上主题。
+// syncWindowBackground 让原生窗口底色与标题栏主题跟上应用主题。
 //
-// 为什么需要：调整窗口大小时，新露出来的那块会先显示原生底色、等 WebView 重绘
-// 才被盖住。底色和主题不一致时，暗色主题下拖窗口会闪白。
-//
-// "跟随系统"在这里只能用浅色底：原生层拿不到前端 matchMedia 的结果。
-// 浅色是本应用的默认外观，赌它命中率最高；影响也只限于拖拽的那一瞬。
+// 两件事都要做，原因不同：
+//   - 底色：调整窗口大小时，新露出来的那块会先显示原生底色、等 WebView 重绘才被盖住。
+//     底色和主题不一致时，暗色主题下拖窗口会闪白。
+//   - 标题栏主题：Win10 的 blur-behind 让标题栏底色变半透明，而文字样式由窗口主题
+//     决定；不跟着应用主题对齐就会出现"白字压着深色方块"（详见 syncCaptionTheme）。
 func (b *backend) syncWindowBackground(s settings.Settings) {
+	b.refreshCaptionTheme(s)
+
 	if b.window == nil {
 		return
 	}
@@ -173,6 +181,12 @@ func (b *backend) syncWindowBackground(s settings.Settings) {
 		return
 	}
 	b.window.SetBackgroundColour(application.NewRGB(238, 244, 255))
+}
+
+// refreshCaptionTheme 是平台无关的转发：真正的 Win32 调用在 caption_windows.go 里，
+// 非 Windows 平台是空实现，这样 app.go 不必带任何平台相关的 import。
+func (b *backend) refreshCaptionTheme(s settings.Settings) {
+	syncCaptionTheme(b.hwnd.Load(), s.Theme)
 }
 
 // noteFrontendConnected 记录前端第一次成功调用后端。

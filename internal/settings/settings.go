@@ -10,13 +10,15 @@ import (
 )
 
 // 存储键。已发布后不要改名，否则旧设置会读不出来。
+//
+// 曾经有过一个 windowTranslucent（窗口毛玻璃开关），现在它恒为开、界面里也没有开关，
+// 所以键与字段都删掉了。旧库里残留的那个键不会有人再读，留着无害。
 const (
 	KeyBreakReminderEnabled = "breakReminderEnabled"
 	KeyBreakIntervalMin     = "breakIntervalMin"
 	KeyMinimizeToTray       = "minimizeToTray"
 	KeyTheme                = "theme"
 	KeyCurrentPlanID        = "currentPlanId"
-	KeyWindowTranslucent    = "windowTranslucent"
 )
 
 // 主题取值。
@@ -48,9 +50,6 @@ type Settings struct {
 	// 它是"设置"而不是"计划表的一列"：这是用户的当下选择，
 	// 与计划本身的属性无关；计划被归档/删除时由 backend 负责纠正。
 	CurrentPlanID int64
-	// WindowTranslucent 让整个窗口半透明（桌面透出来并模糊）。
-	// 需要重建窗口才能生效，所以改完要重启。
-	WindowTranslucent bool
 }
 
 // Defaults 返回首次启动使用的默认设置。
@@ -118,11 +117,6 @@ func Load(st *store.DB) (Settings, error) {
 			out.CurrentPlanID = n
 		}
 	}
-	if v, ok := raw[KeyWindowTranslucent]; ok {
-		if b, err := strconv.ParseBool(v); err == nil {
-			out.WindowTranslucent = b
-		}
-	}
 
 	return out.Normalize(), nil
 }
@@ -136,7 +130,6 @@ func (s Settings) Save(st *store.DB) error {
 		KeyMinimizeToTray:       strconv.FormatBool(n.MinimizeToTray),
 		KeyTheme:                n.Theme,
 		KeyCurrentPlanID:        strconv.FormatInt(n.CurrentPlanID, 10),
-		KeyWindowTranslucent:    strconv.FormatBool(n.WindowTranslucent),
 	})
 }
 

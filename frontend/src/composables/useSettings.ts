@@ -21,7 +21,6 @@ const defaults = (): SettingsDTO => ({
 	minimizeToTray: true,
 	theme: "light",
 	currentPlanId: 0,
-	windowTranslucent: false,
 });
 
 const settings = ref<SettingsDTO>(defaults());

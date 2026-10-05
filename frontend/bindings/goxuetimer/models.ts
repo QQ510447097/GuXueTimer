@@ -112,11 +112,6 @@ export interface SettingsDTO {
      * 拿零值覆盖会把"当前计划"清掉。
      */
     "currentPlanId": number;
-
-    /**
-     * WindowTranslucent 需要重建窗口才生效，所以是"改了要重启"。
-     */
-    "windowTranslucent": boolean;
 }
 
 /**

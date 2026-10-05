@@ -136,8 +136,6 @@ type SettingsDTO struct {
 	// SettingsService.Save 会忽略界面回传的值，因为设置页里没有这个字段，
 	// 拿零值覆盖会把"当前计划"清掉。
 	CurrentPlanID int64 `json:"currentPlanId"`
-	// WindowTranslucent 需要重建窗口才生效，所以是"改了要重启"。
-	WindowTranslucent bool `json:"windowTranslucent"`
 }
 
 // ChangedDTO 是"某类数据变了"的通用载荷。
@@ -236,7 +234,6 @@ func settingsDTOFrom(s settings.Settings) SettingsDTO {
 		MinimizeToTray:       s.MinimizeToTray,
 		Theme:                s.Theme,
 		CurrentPlanID:        s.CurrentPlanID,
-		WindowTranslucent:    s.WindowTranslucent,
 	}
 }
 
@@ -247,7 +244,6 @@ func settingsFromDTO(d SettingsDTO) settings.Settings {
 		MinimizeToTray:       d.MinimizeToTray,
 		Theme:                d.Theme,
 		CurrentPlanID:        d.CurrentPlanID,
-		WindowTranslucent:    d.WindowTranslucent,
 	}
 }
 

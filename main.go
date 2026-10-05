@@ -139,36 +139,44 @@ func main() {
 		},
 	})
 
-	// 窗口尺寸：记录页要同时放柱状图、月历热力图和当日列表，480 宽不够用。
-	cfg := b.Settings()
 	// 原生底色取当前主题的底色，避免启动瞬间闪一下另一种颜色。
 	// "跟随系统"在这里按浅色处理，理由见 backend.syncWindowBackground。
+	//
+	// 开着窗口毛玻璃时这一层也被模糊过的桌面盖住，但仍要设：拖动/缩放窗口时
+	// 新露出来的那块会先显示原生底色，底色和主题不一致就会闪一下。
+	cfg := b.Settings()
 	backdrop := application.NewRGB(238, 244, 255)
 	if cfg.Theme == settings.ThemeDark {
 		backdrop = application.NewRGB(10, 18, 32)
 	}
+	// 窗口尺寸是量出来的，不是估的：把设置页与记录页的内容高度量出来之后，
+	// 960 高（内容区约 921）刚好让两页都不用滚。宽度收到 620——
+	// 记录页的月历七列仍有约 67px 一格，够放日期数字。
 	windowOpts := application.WebviewWindowOptions{
-		Title: appDisplayName,
-		// 尺寸是量出来的，不是估的：把设置页与记录页的内容高度量出来之后，
-		// 920 高（内容区约 881）刚好让两页都不用滚。宽度收到 620——
-		// 记录页的月历七列仍有约 67px 一格，够放日期数字。
-		Width:     620,
-		Height:    960,
-		MinWidth:  540,
-		MinHeight: 720,
-		// 最小尺寸下页面会滚动，这是应有的行为（内容本来就超出一屏）。
+		Title:  appDisplayName,
+		Width:  620,
+		Height: 960,
+		// 最小尺寸下页面会滚动，这是应有的行为（内容本来就超出一屏），
+		// 但不许出现横向滚动条。
+		MinWidth:         540,
+		MinHeight:        720,
 		BackgroundColour: backdrop,
 		URL:              "/",
 	}
-	// 窗口级毛玻璃：让桌面透出来并模糊。需要重建窗口才生效，所以是"改了要重启"。
+	// 窗口级毛玻璃：让桌面透出来并模糊。
 	//
-	// Windows 上 Wails 走的是 SetWindowCompositionAttribute（Win10 回退路径）
-	// 或 DWM 的 Mica/Acrylic（Win11 22621+），前者是未公开 API，
-	// 个别显卡/驱动上会出现缩放卡顿或整窗发黑，所以默认关闭。
-	if cfg.WindowTranslucent {
+	// 恒定开启，界面里没有开关——这个效果是这套外观的一半，做成可选项只会让人
+	// 在"要不要开"上耗神，而且开了之后背景层也要跟着改半透明才看得出差别。
+	//
+	// 实现上：Windows 上 Wails 走 SetWindowCompositionAttribute（Win10 回退路径）
+	// 或 DWM 的 Mica/Acrylic（Win11 22621+）。前者是未公开 API，个别显卡/驱动上
+	// 可能出现缩放卡顿或整窗发黑；真遇到了，把下面这行的 true 改成 false
+	// 并重新构建即可回到不透明窗口（应用内的玻璃观感不受影响）。
+	const translucentWindow = true
+	if translucentWindow {
 		windowOpts.BackgroundType = application.BackgroundTypeTranslucent
-		// 官方文档说 Acrylic 需要 Win11 22621+；本机是 Win10，
-		// Wails 会回退到 SetWindowCompositionAttribute 的 blur-behind。
+		// 官方文档说 Acrylic 需要 Win11 22621+；Win10 上 Wails 会回退到
+		// SetWindowCompositionAttribute 的 blur-behind。
 		windowOpts.Windows.BackdropType = application.Acrylic
 	}
 	window := app.Window.NewWithOptions(windowOpts)
@@ -204,10 +212,21 @@ func main() {
 	trayCleanup = tray.destroy
 	b.attach(app, window, tray)
 
-	// 应用真正跑起来之后再刷一次托盘：Menu.Update 在 app.Run 之前是空操作。
+	// 应用启动后刷一次状态；Menu.Update 在 app.Run 之前是空操作。
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		slog.Info("应用已启动")
 		b.emitState()
+	})
+
+	// 拿窗口句柄的时机要晚于 ApplicationStarted：那个事件触发时窗口还没创建
+	// （实测日志顺序是"应用已启动"早于 WebView2 初始化），句柄是 0。
+	// WindowRuntimeReady 是窗口与 webview 都就绪之后，句柄一定有效。
+	//
+	// 取到句柄后按应用主题对齐标题栏：Win10 的 blur-behind 让标题栏底色变半透明，
+	// 而文字样式由窗口主题决定，不跟着应用主题走就会出现"白字压着深色方块"。
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		b.hwnd.Store(windowHandle(window))
+		b.syncWindowBackground(b.Settings())
 	})
 
 	if err := app.Run(); err != nil {

@@ -462,33 +462,45 @@ func TestSettings_SavePreservesCurrentPlan(t *testing.T) {
 	}
 }
 
-// 窗口毛玻璃是"改了要重启"的开关，需要能落库并读回来。
-func TestSettings_WindowTranslucentRoundTrip(t *testing.T) {
+// 窗口毛玻璃已经从设置里去掉了（恒定开启、界面无开关）。老库里可能还留着
+// windowTranslucent 这个键，必须确认它既不会让加载失败，也不会被写回去。
+func TestSettings_LegacyTranslucentKeyIsIgnored(t *testing.T) {
 	h := newHarness(t)
 
+	// 模拟一份老库：直接把遗留键塞进 settings 表。
+	if err := h.b.db.SaveSettings(map[string]string{"windowTranslucent": "true"}); err != nil {
+		t.Fatalf("写入遗留键失败: %v", err)
+	}
+
+	reloaded, err := settings.Load(h.b.db)
+	if err != nil {
+		t.Fatalf("settings.Load() 读到遗留键就失败了: %v", err)
+	}
+	if reloaded.CurrentPlanID != h.defaultPlanID {
+		t.Errorf("重新载入后 CurrentPlanID = %d, 期望 %d", reloaded.CurrentPlanID, h.defaultPlanID)
+	}
+
+	// 保存一次设置之后，那个遗留键应当不复存在（我们不再写它，
+	// 而 SaveSettings 只覆盖传入的键——所以这里断言的是"没有新写回去"）。
 	saved, err := h.settings.Save(SettingsDTO{
 		BreakReminderEnabled: true,
 		BreakIntervalMin:     45,
 		MinimizeToTray:       true,
 		Theme:                settings.ThemeLight,
-		WindowTranslucent:    true,
 	})
 	if err != nil {
 		t.Fatalf("Save() 失败: %v", err)
 	}
-	if !saved.WindowTranslucent {
-		t.Error("WindowTranslucent 没保存")
+	if saved.CurrentPlanID != h.defaultPlanID {
+		t.Errorf("保存后 CurrentPlanID = %d, 期望保持 %d", saved.CurrentPlanID, h.defaultPlanID)
 	}
 
-	reloaded, err := settings.Load(h.b.db)
+	raw, err := h.b.db.LoadSettings()
 	if err != nil {
-		t.Fatalf("settings.Load() 失败: %v", err)
+		t.Fatalf("LoadSettings() 失败: %v", err)
 	}
-	if !reloaded.WindowTranslucent {
-		t.Error("重新载入后 WindowTranslucent 丢了")
-	}
-	if reloaded.CurrentPlanID != h.defaultPlanID {
-		t.Errorf("重新载入后 CurrentPlanID = %d", reloaded.CurrentPlanID)
+	if _, ok := raw[settings.KeyTheme]; !ok {
+		t.Error("保存后连 theme 都没写进去，说明保存路径没走到")
 	}
 }
 

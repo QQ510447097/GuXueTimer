@@ -11,8 +11,10 @@ import { useSettings } from "../composables/useSettings";
  * 设置页。
  *
  * 表单是一份本地草稿，只有点"保存"才回传后端：开关类设置每动一下就写盘
- * 会让"改错了"变得不可撤销，而且毛玻璃这种要重启才生效的选项
- * 立即生效反而会误导用户。
+ * 会让"改错了"变得不可撤销。
+ *
+ * （M4 会把这里改成实时生效、去掉保存按钮；窗口毛玻璃已经从设置里去掉了，
+ * 它恒定开启，见 main.go 里的 translucentWindow。）
  */
 const { settings, saving, loadError, saveError, save } = useSettings();
 const message = useMessage();
@@ -77,7 +79,6 @@ async function onSave(): Promise<void> {
 		// 0 是"不表态"：当前计划只由 PlansService.SetCurrent 掌管，
 		// 设置页回传任何具体值都可能把用户刚选的计划覆盖掉。
 		currentPlanId: 0,
-		windowTranslucent: draft.value.windowTranslucent,
 	};
 	const saved = await save(payload);
 	if (!saved) {
@@ -140,20 +141,13 @@ async function onSave(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">主题</span>
+						<span class="row-hint gx-faint">窗口毛玻璃是常开的，没有开关</span>
 					</div>
 					<NRadioGroup v-model:value="themeValue" size="small">
 						<NRadioButton value="system">跟随系统</NRadioButton>
 						<NRadioButton value="light">浅色</NRadioButton>
 						<NRadioButton value="dark">深色</NRadioButton>
 					</NRadioGroup>
-				</div>
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">窗口毛玻璃</span>
-						<!-- 窗口背景类型是原生层的"创建窗口"参数，改不了已经创建的窗口 -->
-						<span class="row-hint gx-faint">需要重启应用后生效</span>
-					</div>
-					<NSwitch v-model:value="draft.windowTranslucent" />
 				</div>
 			</div>
 		</GlassPanel>

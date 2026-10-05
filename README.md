@@ -44,6 +44,33 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 （`filter: blur(40px)` 而不是更大），并铺了一层极淡的噪点（内联 SVG 的 `feTurbulence`）
 提供高频细节——面板掠过色斑时才看得出"糊了一层"。
 
+### 窗口毛玻璃（恒定开启）
+
+除了应用内的玻璃面板，窗口本身也开着系统级毛玻璃，桌面会透出来并被模糊。它**没有开关**：
+这个效果是这套外观的一半，做成可选项只会让人在"要不要开"上耗神。实现上有三处必须一起对：
+
+1. **窗口**：`main.go` 里的 `translucentWindow` 常量 → `BackgroundTypeTranslucent` +
+   `Windows.BackdropType = Acrylic`。Windows 上 Wails 会走
+   `SetWindowCompositionAttribute`（Win10 回退路径）或 DWM 的 Mica/Acrylic（Win11 22621+）。
+   前者是未公开 API，个别显卡/驱动上可能出现缩放卡顿或整窗发黑——真遇到了，
+   把那个常量改成 `false` 重新构建即可回到不透明窗口（应用内的玻璃观感不受影响）。
+2. **背景层**：`body` 必须 `background: transparent`，`--gx-bg-gradient` 也必须带 alpha
+   （浅色 0.86~0.90、深色 0.80~0.84）。少做任何一件，透进来的桌面都会被整块盖掉，
+   毛玻璃等于白开——这个坑踩过。
+3. **标题栏**：Win10 上 blur-behind 会让标题栏**底色**变半透明，而**文字**样式由窗口主题
+   决定。本机系统外观是深色、应用是浅色，两者一错位，标题文字就按深色画出来：
+   白字 + 一块不透明的深色底，压在浅色标题栏上——就是用户报的"文字被深色矩形块包围"。
+   `caption_windows.go` 里的 `syncCaptionTheme` 把窗口主题钉到**应用**主题上解决它。
+   两个实现细节值得记住：
+   - 句柄的取得时机是 `events.Common.WindowRuntimeReady`，**不是** `ApplicationStarted`——
+     后者触发时窗口还没创建（日志顺序是"应用已启动"早于 WebView2 初始化），句柄是 0。
+   - 那几个 Win32 调用**不要**套 `application.InvokeSync`：它内部是
+     `dispatchOnMainThread` + `wg.Wait()`，而本函数也会从主线程上调用，会直接自锁
+     （实测表现：日志停在 WebView2 初始化那一行，窗口再也不出现）。
+
+验证方式：`tools/window_shot.ps1` 抓含标题栏的整窗 + `-CaptionOnly` 放大三倍，
+两版图对比就能看出深色块有没有消失。
+
 ## 需求环境
 
 本机实测通过的版本：

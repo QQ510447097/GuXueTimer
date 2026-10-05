@@ -13,7 +13,19 @@
 :root {
 	/* ---- 浅色：蓝白 ---- */
 	--gx-bg-base: #eef4ff;
-	--gx-bg-gradient: linear-gradient(160deg, #f7faff 0%, #e9f1ff 45%, #eaf7ff 100%);
+	/* 渐变带 alpha：窗口开着系统毛玻璃（恒定开启，见 main.go），
+	   纯不透明的背景会把透进来的桌面整个挡掉，毛玻璃就白开了。
+	   alpha 给到 0.86~0.90：留下的那点透明度足以看出桌面在动，
+	   又不至于让浅色主题的文字压在花哨壁纸上读不清。 */
+	--gx-bg-a1: 0.9;
+	--gx-bg-a2: 0.86;
+	--gx-bg-a3: 0.88;
+	--gx-bg-gradient: linear-gradient(
+		160deg,
+		rgba(247, 250, 255, var(--gx-bg-a1)) 0%,
+		rgba(233, 241, 255, var(--gx-bg-a2)) 45%,
+		rgba(234, 247, 255, var(--gx-bg-a3)) 100%
+	);
 	/* 色斑给得比较重、模糊半径不大：它们不只是装饰，还是玻璃面板能"读出来"的
 	   关键——层与层之间的边界越清楚，backdrop-filter 的效果越明显。 */
 	--gx-blob-1: rgba(84, 158, 255, 0.5);
@@ -74,7 +86,17 @@
 /* ---- 深色：蓝调，不是纯灰 ---- */
 .theme-dark {
 	--gx-bg-base: #0a1220;
-	--gx-bg-gradient: linear-gradient(160deg, #0c1728 0%, #0a1220 50%, #0c1b2e 100%);
+	/* 深色下 alpha 略低（0.80~0.84）：深色底更容易盖住桌面，
+	   留出更多透明度才看得出毛玻璃，同时深色本身对花哨壁纸更宽容。 */
+	--gx-bg-a1: 0.84;
+	--gx-bg-a2: 0.8;
+	--gx-bg-a3: 0.82;
+	--gx-bg-gradient: linear-gradient(
+		160deg,
+		rgba(12, 23, 40, var(--gx-bg-a1)) 0%,
+		rgba(10, 18, 32, var(--gx-bg-a2)) 50%,
+		rgba(12, 27, 46, var(--gx-bg-a3)) 100%
+	);
 	--gx-blob-1: rgba(59, 130, 246, 0.34);
 	--gx-blob-2: rgba(34, 211, 238, 0.24);
 	--gx-blob-3: rgba(99, 102, 241, 0.28);
@@ -140,10 +162,17 @@ body,
 }
 
 body {
-	/* 窗口最小 560x680，任何一处溢出都会变成滚动条，这里直接掐掉 */
+	/* 窗口最小 540x720，任何一处溢出都会变成滚动条，这里直接掐掉 */
 	overflow: hidden;
 	color: var(--gx-text);
-	background: var(--gx-bg-base);
+	/*
+	 * 背景必须**透明**：窗口开着系统毛玻璃（恒定开启），透进来的桌面就在这一层后面。
+	 * body 一旦不透明，整块桌面被盖掉，毛玻璃等于白开。
+	 * 看得见的那层底色由 App.vue 里的 .gx-backdrop 负责（带 alpha 的渐变 + 色斑 + 噪点）。
+	 *
+	 * 这里不能写 var(--gx-bg-base)：那是不透明色，只作为"原生窗口底色"的参考值留着。
+	 */
+	background: transparent;
 	font-family: var(--gx-font);
 	font-size: 14px;
 	line-height: 1.5;
