@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { NInputNumber, NRadioButton, NRadioGroup, NSwitch, useMessage } from "naive-ui";
-import type { SettingsDTO } from "../../bindings/goxuetimer/models";
+import { ref, watch } from "vue";
+import { NInputNumber, NSwitch, useMessage } from "naive-ui";
 import * as SettingsService from "../../bindings/goxuetimer/settingsservice";
 import GlassPanel from "../components/GlassPanel.vue";
 import { errText } from "../composables/format";
@@ -10,41 +9,39 @@ import { useSettings } from "../composables/useSettings";
 /**
  * 设置页。
  *
- * 表单是一份本地草稿，只有点"保存"才回传后端：开关类设置每动一下就写盘
- * 会让"改错了"变得不可撤销。
+ * 没有保存按钮：改一下就立即生效。
  *
- * （M4 会把这里改成实时生效、去掉保存按钮；窗口毛玻璃已经从设置里去掉了，
- * 它恒定开启，见 main.go 里的 translucentWindow。）
+ * 早先的版本是一份本地草稿 + 一个"保存"按钮，理由是"改错了不可撤销"。但实测下来
+ * 这个理由站不住：这里的每一项都是所见即所得的显示偏好（提醒开关、间隔、托盘行为），
+ * 看着不合适再改回来就是了，反倒是"改完忘了点保存、以为已经生效"更容易真的踩到。
+ * 现在唯一需要"提交时机"的是数字输入框——它每敲一个键都会发 update:value，
+ * 所以打字期间只改本地值，失焦或回车才提交（见 commitInterval）。
+ *
+ * 外观（主题）搬去了「个性化」页，那是它更该在的地方。
  */
-const { settings, saving, loadError, saveError, save } = useSettings();
+const { settings, saving, loadError, saveError, patch } = useSettings();
 const message = useMessage();
 
-const draft = ref<SettingsDTO>({ ...settings.value });
-
-// 保存成功、或别处改了设置（托盘菜单）之后，表单要显示真正生效的值。
+/** 数字输入不能每敲一键就提交：它每敲一键都会发 update:value。 */
+const intervalDraft = ref<number | null>(settings.value.breakIntervalMin);
 watch(
 	settings,
 	(next) => {
-		draft.value = { ...next };
+		intervalDraft.value = next.breakIntervalMin;
 	},
 	{ immediate: true },
 );
 
-/** NInputNumber 的 v-model 是 number | null，不能直接绑在 number 字段上。 */
-const intervalMin = computed<number | null>({
-	get: () => draft.value.breakIntervalMin,
-	set: (value) => {
-		draft.value.breakIntervalMin = value ?? 1;
-	},
-});
+function commitInterval(): void {
+	const value = intervalDraft.value;
+	if (value === null || value === settings.value.breakIntervalMin) return;
+	void patch({ breakIntervalMin: value });
+}
 
-/** NRadioGroup 的值是 string | number | boolean，收窄成主题枚举。 */
-const themeValue = computed<string>({
-	get: () => draft.value.theme,
-	set: (value) => {
-		draft.value.theme = value === "light" || value === "dark" ? value : "system";
-	},
-});
+/** 开关类设置：动一下就提交，失败已经在 saveError 里。 */
+function commit(partial: Parameters<typeof patch>[0]): void {
+	void patch(partial);
+}
 
 // 数据目录由后端给出：真实路径是逐级降级算出来的，界面自己拼很可能不是那个。
 const dataPath = ref("");
@@ -69,26 +66,6 @@ async function openDataDir(): Promise<void> {
 		openingDir.value = false;
 	}
 }
-
-async function onSave(): Promise<void> {
-	const payload: SettingsDTO = {
-		breakReminderEnabled: draft.value.breakReminderEnabled,
-		breakIntervalMin: draft.value.breakIntervalMin,
-		minimizeToTray: draft.value.minimizeToTray,
-		theme: draft.value.theme,
-		// 0 是"不表态"：当前计划只由 PlansService.SetCurrent 掌管，
-		// 设置页回传任何具体值都可能把用户刚选的计划覆盖掉。
-		currentPlanId: 0,
-	};
-	const saved = await save(payload);
-	if (!saved) {
-		message.error(saveError.value || "保存失败");
-		return;
-	}
-	// 用返回值覆盖草稿：越界值会被后端归一化，界面要显示真正生效的值。
-	draft.value = { ...saved };
-	message.success("设置已保存");
-}
 </script>
 
 <template>
@@ -101,7 +78,10 @@ async function onSave(): Promise<void> {
 						<span class="row-label">开启休息提醒</span>
 						<span class="row-hint gx-faint">连续学习到设定间隔时提醒你起来活动一下</span>
 					</div>
-					<NSwitch v-model:value="draft.breakReminderEnabled" />
+					<NSwitch
+						:value="settings.breakReminderEnabled"
+						@update:value="(value: boolean) => commit({ breakReminderEnabled: value })"
+					/>
 				</div>
 				<div class="row">
 					<div class="row-text">
@@ -110,11 +90,13 @@ async function onSave(): Promise<void> {
 					</div>
 					<div class="inline">
 						<NInputNumber
-							v-model:value="intervalMin"
+							v-model:value="intervalDraft"
 							class="num"
 							:min="1"
 							:max="480"
-							:disabled="!draft.breakReminderEnabled"
+							:disabled="!settings.breakReminderEnabled"
+							@blur="commitInterval"
+							@keyup.enter="commitInterval"
 						/>
 						<span class="unit gx-muted">分钟</span>
 					</div>
@@ -130,24 +112,10 @@ async function onSave(): Promise<void> {
 						<span class="row-label">关闭窗口时最小化到托盘</span>
 						<span class="row-hint gx-faint">关闭后计时与休息提醒仍在后台运行</span>
 					</div>
-					<NSwitch v-model:value="draft.minimizeToTray" />
-				</div>
-			</div>
-		</GlassPanel>
-
-		<GlassPanel padding="16px 18px">
-			<p class="gx-section-title">外观</p>
-			<div class="rows">
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">主题</span>
-						<span class="row-hint gx-faint">窗口毛玻璃是常开的，没有开关</span>
-					</div>
-					<NRadioGroup v-model:value="themeValue" size="small">
-						<NRadioButton value="system">跟随系统</NRadioButton>
-						<NRadioButton value="light">浅色</NRadioButton>
-						<NRadioButton value="dark">深色</NRadioButton>
-					</NRadioGroup>
+					<NSwitch
+						:value="settings.minimizeToTray"
+						@update:value="(value: boolean) => commit({ minimizeToTray: value })"
+					/>
 				</div>
 			</div>
 		</GlassPanel>
@@ -176,12 +144,11 @@ async function onSave(): Promise<void> {
 			</div>
 		</GlassPanel>
 
+		<!-- 没有保存按钮，所以这里只留一行状态：正在写、写失败、或提示"改了就算数" -->
 		<div class="footer">
-			<button type="button" class="save gx-accent-btn gx-pill" :disabled="saving" @click="onSave">
-				{{ saving ? "保存中…" : "保存" }}
-			</button>
 			<p v-if="loadError" class="error">{{ loadError }}</p>
-			<p v-if="saveError" class="error">{{ saveError }}</p>
+			<p v-else-if="saveError" class="error">{{ saveError }}</p>
+			<p v-else class="ok gx-faint">{{ saving ? "保存中…" : "改动会立即生效" }}</p>
 		</div>
 	</section>
 </template>
@@ -274,20 +241,11 @@ async function onSave(): Promise<void> {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
-	padding-bottom: 4px;
+	padding: 2px 2px 4px;
 }
 
-.save {
-	width: 100%;
-	padding: 11px 18px;
-	font-size: 14.5px;
-	font-weight: 600;
-	font-family: inherit;
-	cursor: pointer;
-}
-
-.save:disabled {
-	cursor: not-allowed;
+.ok {
+	font-size: 12.5px;
 }
 
 .error {

@@ -3,9 +3,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
-
-	"goxuetimer/internal/apppath"
 )
 
 // SettingsService 读写用户设置。
@@ -27,11 +24,7 @@ func (s *SettingsService) Get() (SettingsDTO, error) {
 // （Wails 的 PathDataHome → %LOCALAPPDATA% → XDG → UserConfigDir），
 // 界面自己拼出来的那个很可能不是真正在用的。
 func (s *SettingsService) DataDir() (string, error) {
-	dir, err := apppath.EnsureDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(dir)
+	return s.b.dataDir()
 }
 
 // OpenDataDir 在资源管理器里打开数据目录。
@@ -57,10 +50,16 @@ func (s *SettingsService) OpenDataDir() error {
 func (s *SettingsService) Save(in SettingsDTO) (SettingsDTO, error) {
 	next := settingsFromDTO(in)
 
-	// CurrentPlanID 由 PlansService.SetCurrent 掌管，不接受界面回传：
-	// 设置页里根本没有这个字段，界面回传的必然是零值，直接采信会把
-	// "当前计划"清掉——表现为用户一保存设置，计时页的计划就没了。
+	// 这两个字段不在 SettingsDTO 里，界面回传的必然是零值，直接采信会把它们清掉。
+	// 都从当前设置里取回来，与 CurrentPlanID 同理。
+	//
+	//   - CurrentPlanID 由 PlansService.SetCurrent 掌管。表现上的后果是：
+	//     用户一保存设置，计时页选好的计划就没了。
+	//   - BackgroundImage 由 PersonalizationService 掌管。表现上的后果是：
+	//     用户改个主题，背景图就消失了。
+	current := s.b.Settings()
 	next.CurrentPlanID = s.b.currentPlanID()
+	next.BackgroundImage = current.BackgroundImage
 
 	if err := next.Validate(); err != nil {
 		return SettingsDTO{}, err

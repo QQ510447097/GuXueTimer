@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useDialog, useMessage } from "naive-ui";
 import * as PlansService from "../../bindings/goxuetimer/plansservice";
 import * as RecordsService from "../../bindings/goxuetimer/recordsservice";
@@ -9,16 +9,22 @@ import IconDiscard from "../components/IconDiscard.vue";
 import IconPause from "../components/IconPause.vue";
 import IconPlay from "../components/IconPlay.vue";
 import IconStop from "../components/IconStop.vue";
+import InspirationCard from "../components/InspirationCard.vue";
 import PlanPicker from "../components/PlanPicker.vue";
 import StatTile from "../components/StatTile.vue";
+import { quotes, pickQuote, type Quote } from "../data/quotes";
 import {
 	errText,
 	formatClock,
 	formatCountdownCN,
 	formatDurationCN,
 	formatTodayLabel,
+	todayKey,
 } from "../composables/format";
+import { useNav } from "../composables/useNav";
+import { usePersonalization } from "../composables/usePersonalization";
 import { usePlans } from "../composables/usePlans";
+import { useSettings } from "../composables/useSettings";
 import {
 	discardTimer,
 	pauseTimer,
@@ -32,8 +38,43 @@ import {
 
 const { state, now, busy, lastError, elapsedSec, todayTotalSec, breakSec } = useTimer();
 const { activePlans, nameOf, refresh: refreshPlans } = usePlans();
+const { settings, patch } = useSettings();
+const { imageUrl, load: loadBackground } = usePersonalization();
+const { selectView } = useNav();
 const dialog = useDialog();
 const message = useMessage();
+
+/*
+ * 装饰卡片。
+ *
+ * 它是"计时页下方那块空白"的填充物，所以取数据时一律不阻塞计时：语录是纯前端的，
+ * 背景图地址来自后端一次轻量调用。
+ */
+const today = todayKey();
+const cardMode = computed(() => (settings.value.cardMode === "image" ? "image" : "quote"));
+const activeQuote = computed<Quote>(() => {
+	const custom = settings.value.customQuote.trim();
+	if (custom) return { text: custom, source: "" };
+	return pickQuote(today, settings.value.quoteIndex);
+});
+
+onMounted(() => {
+	void loadBackground();
+});
+
+/** 换一句：把"每日一句"变成固定的某一条，每次往后挪一条。 */
+function shuffleQuote(): void {
+	const current = activeQuote.value;
+	const index = quotes.findIndex((q) => q.text === current.text);
+	// 找不到（说明当前用的是自定义文字）就从第一条开始。
+	const next = index < 0 ? 1 : ((index + 1) % quotes.length) + 1;
+	void patch({ customQuote: "", quoteIndex: next });
+}
+
+/** 图片模式下没有图时的入口：切到个性化页去挑一张。 */
+function goPersonalize(): void {
+	selectView("personalize");
+}
 
 const switching = ref(false);
 const planTodaySec = ref(0);
@@ -243,12 +284,57 @@ async function onSelectPlan(id: number): Promise<void> {
 				</div>
 			</div>
 		</GlassPanel>
+
+		<!-- 装饰卡片：填上时钟面板下方的那块空白。
+		     它不参与计时，所以放在最下面——需要看数据时视线不用越过它。
+		     这个面板会吸收剩余高度（见 .card-panel），窗口高时卡片就高，
+		     不会在底部留下一大片空白。 -->
+		<GlassPanel class="card-panel" padding="14px 16px">
+			<InspirationCard
+				:mode="cardMode"
+				:quote="activeQuote"
+				:image-url="imageUrl"
+				:show-shuffle="cardMode === 'quote'"
+				empty-hint="还没有选背景图，去「个性化」挑一张"
+				@shuffle="shuffleQuote"
+				@pick="goPersonalize"
+			/>
+		</GlassPanel>
 	</section>
 </template>
 
 <style scoped>
 .timer-view {
 	gap: var(--gx-gap);
+	/*
+	 * 撑满内容区的高度，好让最后一个面板吸收剩余空间。
+	 *
+	 * 这一条是"计时页下方空空的"那个问题的正面解法：窗口 960 高，而计时内容
+	 * 只占约 630，剩下的 290 全靠装饰卡片长高填掉。不加 min-height 的话，
+	 * 这个 flex 列的高度就是内容高度，flex-grow 没有可分配的剩余空间，卡片不会长。
+	 *
+	 * 顺带说明：探针的"一屏放得下"检查**测不出**这种空白——scrollHeight 永远不会
+	 * 小于 clientHeight，内容比容器矮时两者相等。所以这个问题得靠眼睛看截图。
+	 */
+	min-height: 100%;
+}
+
+/*
+ * 装饰卡片吸收剩余高度；窗口矮时缩回内容高度，不会把别的面板挤出去。
+ *
+ * 这里不用"给卡片写 height: 100%"：那要靠百分比高度逐级解析，中间任何一环
+ * 高度是 auto 就会失效（实测就是这么失效的——面板长高了，里面的卡片没跟着长）。
+ * 让面板本身变成一个 flex 列、卡片 flex-grow，高度关系由 flex 布局直接算出来。
+ */
+.card-panel {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 116px;
+}
+
+.card-panel :deep(.inspiration) {
+	flex: 1 1 auto;
 }
 
 .plan-row {

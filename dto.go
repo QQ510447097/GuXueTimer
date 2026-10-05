@@ -136,6 +136,16 @@ type SettingsDTO struct {
 	// SettingsService.Save 会忽略界面回传的值，因为设置页里没有这个字段，
 	// 拿零值覆盖会把"当前计划"清掉。
 	CurrentPlanID int64 `json:"currentPlanId"`
+	// ---- 计时页的装饰卡片 ----
+	CardMode    string `json:"cardMode"` // quote | image
+	CustomQuote string `json:"customQuote"`
+	// QuoteIndex 为 0 表示"每日一句"（按日期自动挑），大于 0 表示固定第 index 条（1 起算）。
+	// 用 0 当"自动"，是为了让零值即默认，理由见 settings.QuoteIndexAuto。
+	QuoteIndex int `json:"quoteIndex"`
+	// 注意：背景图文件名**不在**这个 DTO 里。它由 PersonalizationService 掌管
+	// （选图要弹文件框、要复制文件、要通过资源中间件提供），
+	// 前端拿到的是 PersonalizationDTO 里带版本号的可用地址。
+	// 与 CurrentPlanID 同理：确实存在 settings 表里，但不经过这个 DTO 编辑。
 }
 
 // ChangedDTO 是"某类数据变了"的通用载荷。
@@ -234,6 +244,9 @@ func settingsDTOFrom(s settings.Settings) SettingsDTO {
 		MinimizeToTray:       s.MinimizeToTray,
 		Theme:                s.Theme,
 		CurrentPlanID:        s.CurrentPlanID,
+		CardMode:             s.CardMode,
+		CustomQuote:          s.CustomQuote,
+		QuoteIndex:           s.QuoteIndex,
 	}
 }
 
@@ -244,6 +257,9 @@ func settingsFromDTO(d SettingsDTO) settings.Settings {
 		MinimizeToTray:       d.MinimizeToTray,
 		Theme:                d.Theme,
 		CurrentPlanID:        d.CurrentPlanID,
+		CardMode:             d.CardMode,
+		CustomQuote:          d.CustomQuote,
+		QuoteIndex:           d.QuoteIndex,
 	}
 }
 

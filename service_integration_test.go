@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -77,7 +78,7 @@ func (s *eventSpy) lastState(t *testing.T) TimerStateDTO {
 	return s.states[len(s.states)-1]
 }
 
-// harness 把一套后端 + 三个服务装好，模拟应用启动后的可用状态。
+// harness 把一套后端 + 各服务装好，模拟应用启动后的可用状态。
 type harness struct {
 	b        *backend
 	clock    *clock
@@ -86,6 +87,11 @@ type harness struct {
 	records  *RecordsService
 	plans    *PlansService
 	settings *SettingsService
+	personal *PersonalizationService
+
+	// dataDir 是这套夹具的"数据目录"（临时目录）。
+	// 资源中间件与背景图导入都会往这里读写，绝不碰用户真正的数据目录。
+	dataDir string
 
 	// defaultPlanID 是夹具默认建好的计划，计时的用例都从它开始。
 	defaultPlanID int64
@@ -107,6 +113,13 @@ func newHarness(t *testing.T) *harness {
 	}
 	spy := &eventSpy{}
 	b.emitHook = spy.record
+
+	// 数据目录指向临时目录：这些测试会往里写图片文件。
+	dataDir := filepath.Join(t.TempDir(), "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("建临时数据目录失败: %v", err)
+	}
+	b.dataDirFn = func() (string, error) { return dataDir, nil }
 
 	// 模拟 attach 里的回调注册与恢复流程（不含窗口/托盘）。
 	b.timer.OnStateChange(func(snap timer.Snapshot) {
@@ -130,6 +143,8 @@ func newHarness(t *testing.T) *harness {
 		records:  NewRecordsService(b),
 		plans:    NewPlansService(b),
 		settings: NewSettingsService(b),
+		personal: NewPersonalizationService(b),
+		dataDir:  dataDir,
 	}
 	// 计时现在必须先有计划，所以夹具默认建一个：绝大多数用例只关心计时，
 	// 不该每个都自己写一遍建计划的样板。

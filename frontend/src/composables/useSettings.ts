@@ -21,6 +21,10 @@ const defaults = (): SettingsDTO => ({
 	minimizeToTray: true,
 	theme: "light",
 	currentPlanId: 0,
+	cardMode: "quote",
+	customQuote: "",
+	// 0 = 每日一句（自动）。后端也是这个语义，见 settings.QuoteIndexAuto。
+	quoteIndex: 0,
 });
 
 const settings = ref<SettingsDTO>(defaults());
@@ -83,7 +87,7 @@ export function loadSettings(force = false): Promise<void> {
 }
 
 /**
- * 保存后必须用返回值覆盖本地草稿：后端返回的是"结论"，
+ * 保存后必须用返回值覆盖本地设置：后端返回的是"结论"，
  * 越界值会被它归一化，界面要立刻显示真正生效的值。
  */
 export async function saveSettings(draft: SettingsDTO): Promise<SettingsDTO | null> {
@@ -101,6 +105,36 @@ export async function saveSettings(draft: SettingsDTO): Promise<SettingsDTO | nu
 	}
 }
 
+/*
+ * 实时生效的保存队列。
+ *
+ * 设置页没有保存按钮，改一下就提交一次；用户手快时（连点两个开关、拖数字输入）
+ * 会有多次提交重叠。如果让它们并行，后到的响应可能覆盖先到的，
+ * 界面就停在"最后一次响应"而不是"最后一次操作"的状态上。
+ * 所以把提交串成一条链：每一次都等前一次结束，再按**当时**的设置合成请求。
+ *
+ * "按当时的设置合成"很关键：patch 里读的是 settings.value 的最新值，
+ * 而它已经被前一次保存的返回值覆盖过，所以排队中的改动是叠加而不是互相丢弃。
+ */
+let saveQueue: Promise<SettingsDTO | null> = Promise.resolve(null);
+
+/** 改哪一项就只传哪一项；其余字段取当前已生效的值。 */
+export function patchSettings(partial: Partial<SettingsDTO>): Promise<SettingsDTO | null> {
+	const run = (): Promise<SettingsDTO | null> => {
+		const payload: SettingsDTO = {
+			...settings.value,
+			...partial,
+			// 当前计划只由 PlansService.SetCurrent 掌管，这里一律回 0（"不表态"）。
+			// 设置页里没有这个字段，回传具体值会把用户刚选的计划覆盖掉。
+			currentPlanId: 0,
+		};
+		return saveSettings(payload);
+	};
+	// 前一次无论成功还是失败，都要继续跑下一次（失败已经落到 saveError 里了）。
+	saveQueue = saveQueue.then(run, run);
+	return saveQueue;
+}
+
 export function useSettings() {
 	return {
 		settings: readonly(settings) as Readonly<Ref<SettingsDTO>>,
@@ -115,6 +149,7 @@ export function useSettings() {
 		themeClass,
 		load: loadSettings,
 		save: saveSettings,
+		patch: patchSettings,
 	};
 }
 

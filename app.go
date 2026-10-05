@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -57,6 +61,9 @@ type backend struct {
 
 	// emitHook 是可注入的事件观察者，仅用于测试；生产下为 nil。
 	emitHook func(name string, data any)
+
+	// dataDirFn 覆盖数据目录的解析，仅用于测试（把读写限制在临时目录里）。
+	dataDirFn func() (string, error)
 }
 
 // emit 把事件广播给前端。
@@ -140,6 +147,51 @@ func (b *backend) Close() error { return b.db.Close() }
 func (b *backend) openSettings() {
 	b.showMainWindow()
 	b.emit(eventNavGoto, NavGotoDTO{View: "settings"})
+}
+
+// dataDir 返回数据目录的绝对路径。
+//
+// 逐级降级在 apppath 里，这里统一走一个入口，免得设置服务与个人化服务
+// 各自算一遍、算出两个不同的目录。
+//
+// 做成可注入的字段是为了能测：资源中间件与背景图导入都要往这个目录里读写，
+// 测试必须把它指到一个临时目录，绝不能碰用户真正的数据目录。
+func (b *backend) dataDir() (string, error) {
+	if b.dataDirFn != nil {
+		return b.dataDirFn()
+	}
+	dir, err := apppath.EnsureDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(dir)
+}
+
+// backgroundState 汇总背景图的当前状态。
+//
+// 地址里带 ?v=<修改时间>：换图之后文件名不变（就是 background.png），
+// 不带版本号浏览器会一直用缓存里的上一张——这个坑一定会踩到。
+// 文件不存在时返回空状态（用户可能手动删了数据目录里的图），
+// 免得给前端一个必然 404 的地址。
+func (b *backend) backgroundState() PersonalizationDTO {
+	name := b.Settings().BackgroundImage
+	if name == "" {
+		return PersonalizationDTO{}
+	}
+	dir, err := b.dataDir()
+	if err != nil {
+		slog.Warn("读取数据目录失败", "err", err)
+		return PersonalizationDTO{}
+	}
+	info, err := os.Stat(filepath.Join(dir, filepath.Base(name)))
+	if err != nil {
+		slog.Warn("背景图文件不存在，按未设置处理", "image", name, "err", err)
+		return PersonalizationDTO{}
+	}
+	return PersonalizationDTO{
+		Image: name,
+		URL:   "/user/" + url.PathEscape(name) + "?v=" + strconv.FormatInt(info.ModTime().Unix(), 10),
+	}
 }
 
 // Settings 返回当前设置副本。

@@ -90,12 +90,17 @@ func main() {
 			application.NewService(NewRecordsService(b)),
 			application.NewService(NewPlansService(b)),
 			application.NewService(NewSettingsService(b)),
+			application.NewService(NewPersonalizationService(b)),
 			// 通知服务自己实现了 ServiceStartup/ServiceShutdown：
 			// 注册之后它会在启动时完成 Windows 通知所需的注册。
 			application.NewService(b.notifier),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
+			// /user/ 前缀交给个人化服务去提供：用户选的背景图存在数据目录里，
+			// 不在 embed 的前端产物里。中间件只放行"设置里记着的那一个文件名"，
+			// 其余一律原样交给前端资源处理器。
+			Middleware: userAssetMiddleware(b),
 		},
 		Windows: application.WindowsOptions{
 			// 关窗只是隐藏到托盘，不能因为"最后一个窗口关了"就退出进程。

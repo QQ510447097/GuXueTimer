@@ -15,6 +15,7 @@ import IconCalendar from "./components/IconCalendar.vue";
 import IconPlan from "./components/IconPlan.vue";
 import IconPlay from "./components/IconPlay.vue";
 import IconSettings from "./components/IconSettings.vue";
+import IconSparkle from "./components/IconSparkle.vue";
 import NavRail, { type NavItem } from "./components/NavRail.vue";
 import { useHotkeys } from "./composables/useHotkeys";
 import { setViewValidator, useNav } from "./composables/useNav";
@@ -22,6 +23,7 @@ import { usePlans } from "./composables/usePlans";
 import { useSettings } from "./composables/useSettings";
 import { pauseTimer, pullState, resumeTimer, startTimer, useTimer } from "./composables/useTimer";
 import OnboardingView from "./views/OnboardingView.vue";
+import PersonalizeView from "./views/PersonalizeView.vue";
 import PlansView from "./views/PlansView.vue";
 import RecordsView from "./views/RecordsView.vue";
 import SettingsView from "./views/SettingsView.vue";
@@ -88,6 +90,9 @@ const navItems: NavItem[] = [
 	{ key: "timer", label: "计时", icon: markRaw(IconPlay) },
 	{ key: "records", label: "记录", icon: markRaw(IconCalendar) },
 	{ key: "plans", label: "计划", icon: markRaw(IconPlan) },
+	// 个性化放在设置前面：它管的是"长什么样"（主题、首页卡片），
+	// 而设置管的是"怎么工作"（提醒、托盘、数据）。先外貌后机制，读起来更顺。
+	{ key: "personalize", label: "个性化", icon: markRaw(IconSparkle) },
 	{ key: "settings", label: "设置", icon: markRaw(IconSettings) },
 ];
 
@@ -95,6 +100,7 @@ const views: Record<string, Component> = {
 	timer: markRaw(TimerView),
 	records: markRaw(RecordsView),
 	plans: markRaw(PlansView),
+	personalize: markRaw(PersonalizeView),
 	settings: markRaw(SettingsView),
 };
 

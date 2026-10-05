@@ -50,6 +50,23 @@ export interface NoticeDTO {
 }
 
 /**
+ * PersonalizationDTO 是背景图的当前状态。
+ */
+export interface PersonalizationDTO {
+    /**
+     * Image 是数据目录里的文件名；空表示用户还没选。
+     */
+    "image": string;
+
+    /**
+     * URL 是可直接放进 <img src> 的地址，带 ?v= 版本号用来打破浏览器缓存。
+     * 换图之后文件名不变（就叫 background.png），不带版本号的话
+     * 界面会一直显示上一张——这个缓存问题一定会遇到。
+     */
+    "url": string;
+}
+
+/**
  * PlanDTO 是一个学习计划（含统计）。
  */
 export interface PlanDTO {
@@ -112,6 +129,19 @@ export interface SettingsDTO {
      * 拿零值覆盖会把"当前计划"清掉。
      */
     "currentPlanId": number;
+
+    /**
+     * ---- 计时页的装饰卡片 ----
+     * quote | image
+     */
+    "cardMode": string;
+    "customQuote": string;
+
+    /**
+     * QuoteIndex 为 0 表示"每日一句"（按日期自动挑），大于 0 表示固定第 index 条（1 起算）。
+     * 用 0 当"自动"，是为了让零值即默认，理由见 settings.QuoteIndexAuto。
+     */
+    "quoteIndex": number;
 }
 
 /**
