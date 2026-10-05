@@ -32,7 +32,7 @@ param(
     [string]$Views = "timer,records,plans,settings",
     [string]$Size = "",
     [switch]$Dark,
-    [switch]$Dialog,
+    [switch]$Act,
     [switch]$RequireNoScroll,
     [string]$Out = "screenshots",
     [int]$Port = 9222,
@@ -142,8 +142,8 @@ if ($Size -match '^(\d+)x(\d+)$') {
 if ($prefix) { $nodeArgs += @('--prefix', $prefix) }
 # 深色：探测脚本往 <html> 上加 theme-dark 类即可，不动数据库里的主题设置。
 if ($Dark) { $nodeArgs += '--dark' }
-# 弹窗：截图前先做一次脚本化交互（例如点开归档确认框），用来验证浮层里的文字对比度。
-if ($Dialog) { $nodeArgs += '--dialog' }
+# 弹窗：截图前先做一次脚本化交互（点开归档确认框 / 切到本月），用来验证浮层里的文字对比度。
+if ($Act) { $nodeArgs += '--act' }
 
 $json = & $node @nodeArgs
 $exit = $LASTEXITCODE

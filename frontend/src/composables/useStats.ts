@@ -1,7 +1,16 @@
 import { computed, readonly, ref, watch, type ComputedRef, type Ref } from "vue";
 import * as RecordsService from "../../bindings/goxuetimer/recordsservice";
 import type { DailyTotalDTO } from "../../bindings/goxuetimer/models";
-import { addDays, dayRange, daysInMonth, errText, monthOf, shiftMonth, todayKey } from "./format";
+import {
+	addDays,
+	dayRange,
+	daysInMonth,
+	errText,
+	monthOf,
+	shiftMonth,
+	todayKey,
+	weekStart,
+} from "./format";
 
 /**
  * 记录页的统计选择项（模块级单例）。
@@ -15,7 +24,15 @@ import { addDays, dayRange, daysInMonth, errText, monthOf, shiftMonth, todayKey 
  * 如果让柱状图和月历各自补一次，两边的空白天数迟早对不上。
  */
 
-export type RangeDays = 7 | 14 | 30;
+/**
+ * 柱状图的区间。
+ *
+ * 只有"本周 / 本月"两种，不是"近 7 / 14 / 30 天"：
+ * 后者与下方月历是两个互不相干的坐标系（"近 14 天"横跨两个月，而月历只画一个月），
+ * 用户看不出两者怎么对应。改成本周/本月之后，**本月直接就是月历当前显示的那个月**，
+ * 图与日历永远讲同一件事，还能复用同一份查询。
+ */
+export type StatsRange = "week" | "month";
 
 /** 柱状图的一天：date 连续、无空洞（缺的日子补零）。 */
 export interface DayPoint {
@@ -24,22 +41,25 @@ export interface DayPoint {
 	count: number;
 }
 
-const rangeDays = ref<RangeDays>(7);
+/** 月历一天的数据：热力图要秒数，柱状图 tooltip 要次数。 */
+export interface DayTotal {
+	sec: number;
+	count: number;
+}
+
+const range = ref<StatsRange>("week");
 const filterPlanId = ref(0);
 const selectedDate = ref(todayKey());
 const month = ref(monthOf(todayKey()));
-const dailyTotals = ref<DayPoint[]>([]);
-const monthTotals = ref<Record<string, number>>({});
+const chartPoints = ref<DayPoint[]>([]);
+const monthTotals = ref<Record<string, DayTotal>>({});
 const loading = ref(false);
 const error = ref("");
 
-let bound = false;
-/**
- * 请求序号。
- *
- * 区间按钮可以连点，两个 DailyTotals 会重叠；没有这个序号时，
- * 先发后到的旧结果会把新结果盖掉（画面回到上一个区间）。
- */
+/** 本次图表区间的起止（已夹到今天）。标题要用它，所以暴露出去。 */
+const chartStart = ref("");
+const chartEnd = ref("");
+
 let seq = 0;
 
 async function fetchAll(): Promise<void> {
@@ -47,36 +67,52 @@ async function fetchAll(): Promise<void> {
 	loading.value = true;
 	error.value = "";
 
-	const end = todayKey();
-	const start = addDays(end, -(rangeDays.value - 1));
+	const today = todayKey();
 	const planID = filterPlanId.value;
-
-	// 月历要整月数据，可能比区间更宽（用户会翻月）。
-	// 未来没有记录，而且 DailyTotals 对 from > to 直接报错，所以要夹到今天为止。
 	const m = month.value;
+
+	// 月历是整月，可能比图表区间更宽（用户会翻月）；未来没有记录，夹到今天。
 	const monthStart = `${m}-01`;
 	const monthEndRaw = `${m}-${String(daysInMonth(m)).padStart(2, "0")}`;
-	const monthEnd = monthEndRaw > end ? end : monthEndRaw;
+	const monthEnd = monthEndRaw > today ? today : monthEndRaw;
+
+	// 本月模式下图表与月历是同一段区间，只需要查一次。
+	const isMonth = range.value === "month";
+	// 本周固定画周一到周日七格（而不是"周一到今天"）：周一打开时只到今天会只剩
+	// 一根柱子，柱数每天变来变去也不好比较。未来的日子自然没有记录，是 0。
+	const start = isMonth ? monthStart : weekStart(today);
+	const end = isMonth ? monthEnd : addDays(weekStart(today), 6);
+	// 用户把月历翻到未来月份时 start > end，DailyTotals 对这种入参会直接报错，所以先挡掉。
+	const valid = start <= end;
 
 	try {
-		const [rangeRows, monthRows] = await Promise.all([
-			RecordsService.DailyTotals(start, end, planID),
-			monthStart > monthEnd
-				? Promise.resolve<DailyTotalDTO[] | null>([])
+		const [chartRows, monthRows] = await Promise.all([
+			valid
+				? RecordsService.DailyTotals(start, end, planID)
+				: Promise.resolve<DailyTotalDTO[] | null>([]),
+			// 本月模式下月历复用图表那份数据，不再重复查。
+			isMonth || !valid
+				? Promise.resolve<DailyTotalDTO[] | null>(null)
 				: RecordsService.DailyTotals(monthStart, monthEnd, planID),
 		]);
 		if (mine !== seq) return;
 
-		const byDate: Record<string, DailyTotalDTO> = {};
-		for (const row of rangeRows ?? []) byDate[row.date] = row;
-		dailyTotals.value = dayRange(start, end).map((date) => ({
-			date,
-			totalSec: byDate[date]?.totalSec ?? 0,
-			count: byDate[date]?.count ?? 0,
-		}));
+		const chartByDate: Record<string, DailyTotalDTO> = {};
+		for (const row of chartRows ?? []) chartByDate[row.date] = row;
+		chartPoints.value = valid
+			? dayRange(start, end).map((date) => ({
+					date,
+					totalSec: chartByDate[date]?.totalSec ?? 0,
+					count: chartByDate[date]?.count ?? 0,
+				}))
+			: [];
+		chartStart.value = valid ? start : "";
+		chartEnd.value = valid ? end : "";
 
-		const totals: Record<string, number> = {};
-		for (const row of monthRows ?? []) totals[row.date] = row.totalSec;
+		const totals: Record<string, DayTotal> = {};
+		for (const row of (isMonth ? chartRows : monthRows) ?? []) {
+			totals[row.date] = { sec: row.totalSec, count: row.count };
+		}
 		monthTotals.value = totals;
 	} catch (err) {
 		if (mine === seq) error.value = errText(err);
@@ -91,10 +127,7 @@ export function refreshStats(): Promise<void> {
 
 /** 幂等绑定：多次调用 useStats 不会注册多组 watcher。 */
 function ensureBound(): void {
-	if (bound) return;
-	bound = true;
-	// 不 immediate：初次加载由记录页自己触发，避免在应用启动时就打多余的一次查询。
-	watch([rangeDays, filterPlanId, month], () => {
+	watch([range, filterPlanId, month], () => {
 		void fetchAll();
 	});
 }
@@ -104,7 +137,7 @@ function ensureBound(): void {
  *
  * 这不是风格问题，是一个已经发生过的 bug：useStats() 是在组件的 setup 里调用的，
  * 在那里创建的 watch 属于那个组件实例，Vue 会在组件卸载时自动把它停掉；
- * 而上面的 bound 标志是模块级的，它已经是 true，于是再也不会重新注册。
+ * 而 bound 标志是模块级的，它已经是 true，于是再也不会重新注册。
  * 后果是"离开记录页再回来"之后，改区间 / 改计划筛选 / 月历翻月都只改了按钮高亮，
  * 查询一次都不会再发——图和列表停在旧数据上。
  *
@@ -112,15 +145,14 @@ function ensureBound(): void {
  */
 ensureBound();
 
-const rangeTotalSec = computed(() => dailyTotals.value.reduce((sum, p) => sum + p.totalSec, 0));
-const rangeCount = computed(() => dailyTotals.value.reduce((sum, p) => sum + p.count, 0));
+const rangeTotalSec = computed(() => chartPoints.value.reduce((sum, p) => sum + p.totalSec, 0));
+const rangeCount = computed(() => chartPoints.value.reduce((sum, p) => sum + p.count, 0));
 
 export function useStats() {
-	ensureBound();
 	return {
-		rangeDays: readonly(rangeDays) as Readonly<Ref<RangeDays>>,
-		setRangeDays(days: RangeDays): void {
-			rangeDays.value = days;
+		range: readonly(range) as Readonly<Ref<StatsRange>>,
+		setRange(next: StatsRange): void {
+			range.value = next;
 		},
 		filterPlanId: readonly(filterPlanId) as Readonly<Ref<number>>,
 		setFilterPlanId(id: number): void {
@@ -137,10 +169,13 @@ export function useStats() {
 		shiftMonth(delta: number): void {
 			month.value = shiftMonth(month.value, delta);
 		},
-		/** 区间内逐日数据，已补零。 */
-		dailyTotals: readonly(dailyTotals) as Readonly<Ref<DayPoint[]>>,
-		/** 当前显示月份里有记录的日子：日期键 -> 秒数。 */
-		monthTotals: readonly(monthTotals) as Readonly<Ref<Record<string, number>>>,
+		/** 图表区间内逐日数据，已补零。 */
+		chartPoints: readonly(chartPoints) as Readonly<Ref<DayPoint[]>>,
+		/** 图表区间的起止日期键（本周是周一到周日）。 */
+		chartStart: readonly(chartStart) as Readonly<Ref<string>>,
+		chartEnd: readonly(chartEnd) as Readonly<Ref<string>>,
+		/** 当前显示月份里有记录的日子：日期键 -> {秒数, 次数}。 */
+		monthTotals: readonly(monthTotals) as Readonly<Ref<Record<string, DayTotal>>>,
 		rangeTotalSec: rangeTotalSec as ComputedRef<number>,
 		rangeCount: rangeCount as ComputedRef<number>,
 		loading: readonly(loading) as Readonly<Ref<boolean>>,

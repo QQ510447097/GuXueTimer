@@ -148,11 +148,15 @@ func main() {
 		backdrop = application.NewRGB(10, 18, 32)
 	}
 	windowOpts := application.WebviewWindowOptions{
-		Title:            appDisplayName,
-		Width:            680,
-		Height:           820,
-		MinWidth:         560,
-		MinHeight:        680,
+		Title: appDisplayName,
+		// 尺寸是量出来的，不是估的：把设置页与记录页的内容高度量出来之后，
+		// 920 高（内容区约 881）刚好让两页都不用滚。宽度收到 620——
+		// 记录页的月历七列仍有约 67px 一格，够放日期数字。
+		Width:     620,
+		Height:    960,
+		MinWidth:  540,
+		MinHeight: 720,
+		// 最小尺寸下页面会滚动，这是应有的行为（内容本来就超出一屏）。
 		BackgroundColour: backdrop,
 		URL:              "/",
 	}

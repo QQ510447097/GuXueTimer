@@ -9,12 +9,14 @@ import {
 	shortDayLabel,
 	weekdayFromMonday,
 } from "../composables/format";
+import type { DayTotal } from "../composables/useStats";
 
 /**
  * 月历热力图（CSS grid，7 列）。
  *
- * 格子用 aspect-ratio: 1 + minmax(0, 1fr) 自适应：最小窗口下内容区约 448px，
- * 7 列各 ~55px，写成固定像素宽立刻就会撑出横向滚动。
+ * 格子用定高（不是 aspect-ratio）+ minmax(0, 1fr) 自适应：最小窗口下内容区约 490px，
+ * 7 列各 ~67px；写成固定像素宽立刻就会撑出横向滚动，而正方形格子会让
+ * 一个月的日历高达 500px，把下面的当日明细整段挤出屏幕。
  */
 interface DayCell {
 	day: number;
@@ -24,8 +26,8 @@ interface DayCell {
 const props = defineProps<{
 	/** YYYY-MM */
 	month: string;
-	/** 日期键 -> 秒数，只有有记录的日子在表里 */
-	totals: Record<string, number>;
+	/** 日期键 -> {秒数, 次数}，只有有记录的日子在表里 */
+	totals: Record<string, DayTotal>;
 	/** 当前选中日 YYYY-MM-DD */
 	selected: string;
 	/** 今天 YYYY-MM-DD，用来画"今天"的圈 */
@@ -54,8 +56,8 @@ const maxTotalInMonth = computed(() => {
 	let max = 0;
 	for (const cell of cells.value) {
 		if (!cell) continue;
-		const total = props.totals[cell.key] ?? 0;
-		if (total > max) max = total;
+		const sec = props.totals[cell.key]?.sec ?? 0;
+		if (sec > max) max = sec;
 	}
 	return max;
 });
@@ -67,9 +69,9 @@ const maxTotalInMonth = computed(() => {
 const maxRef = computed(() => Math.max(maxTotalInMonth.value, 1800));
 
 function level(key: string): number {
-	const total = props.totals[key] ?? 0;
-	if (total <= 0) return 0;
-	return Math.min(4, Math.max(1, Math.ceil((4 * total) / maxRef.value)));
+	const sec = props.totals[key]?.sec ?? 0;
+	if (sec <= 0) return 0;
+	return Math.min(4, Math.max(1, Math.ceil((4 * sec) / maxRef.value)));
 }
 
 const currentMonth = computed(() => props.today.slice(0, 7));
@@ -81,9 +83,9 @@ function isFuture(key: string): boolean {
 }
 
 function cellTitle(cell: DayCell): string {
-	const total = props.totals[cell.key] ?? 0;
-	return total > 0
-		? `${shortDayLabel(cell.key)} · ${formatDurationCN(total)}`
+	const sec = props.totals[cell.key]?.sec ?? 0;
+	return sec > 0
+		? `${shortDayLabel(cell.key)} · ${formatDurationCN(sec)}`
 		: `${shortDayLabel(cell.key)} · 无记录`;
 }
 
@@ -150,7 +152,7 @@ function pick(key: string): void {
 .heatmap {
 	display: flex;
 	flex-direction: column;
-	gap: 7px;
+	gap: 6px;
 	width: 100%;
 	min-width: 0;
 }
@@ -199,7 +201,7 @@ function pick(key: string): void {
 .grid {
 	display: grid;
 	grid-template-columns: repeat(7, minmax(0, 1fr));
-	gap: 4px;
+	gap: 3px;
 }
 
 .weekdays {
@@ -211,19 +213,19 @@ function pick(key: string): void {
 /*
  * 格子刻意**不用** aspect-ratio: 1。
  *
- * 面板内容区有 520px 宽，7 列均分后每格约 70px，正方形格子会让一个月的日历高达
- * 500px 以上，把下面的"当日明细"整段挤出屏幕。改成定高之后，一个月只占约 260px，
+ * 面板内容区有约 490px 宽，7 列均分后每格约 67px，正方形格子会让一个月的日历高达
+ * 500px 以上，把下面的"当日明细"整段挤出屏幕。改成定高之后，一个月只占约 220px，
  * 而且这个高度放得下日期数字——光靠颜色只能看出深浅，看不出是哪一天。
  */
 .cell {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	height: 34px;
+	height: 30px;
 	min-width: 0;
 	padding: 0;
 	border: none;
-	border-radius: 9px;
+	border-radius: 8px;
 	cursor: pointer;
 	transition: transform var(--gx-dur) var(--gx-ease), box-shadow var(--gx-dur) var(--gx-ease);
 }

@@ -78,7 +78,9 @@ function labelClass(index: number): string {
 </script>
 
 <template>
-	<div class="chart">
+	<!-- data-points 给 tools/ui_probe.mjs 断言用：区间切换后柱子根数必须真的变，
+	     否则"筛选生效了"只能靠肉眼判断。 -->
+	<div class="chart" :data-points="points.length">
 		<div class="plot">
 			<div class="grid" aria-hidden="true">
 				<div v-for="tick in ticks" :key="tick.pct" class="grid-line" :style="{ bottom: `${tick.pct}%` }">
@@ -136,10 +138,13 @@ function labelClass(index: number): string {
 /*
  * 左侧 34px 是给刻度文字留的槽。绝对定位的网格线以 padding box 为包含块，
  * 所以 left: 0 仍然贴齐整块图的左边（含槽），文字就落在槽里不压柱子。
+ *
+ * 高度 108px 是量出来的：记录页要在一屏内容纳"图 + 月历 + 当日明细"，
+ * 132px 时整页高 978、比内容区多出近百像素，用户还得滚一下才能看全。
  */
 .plot {
 	position: relative;
-	height: 132px;
+	height: 108px;
 	padding-left: 34px;
 }
 

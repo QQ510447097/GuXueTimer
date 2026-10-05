@@ -6,10 +6,10 @@ import GlassPanel from "../components/GlassPanel.vue";
 import HeatmapCalendar from "../components/HeatmapCalendar.vue";
 import PlanChip from "../components/PlanChip.vue";
 import SessionRow from "../components/SessionRow.vue";
-import { dayLabel, formatDurationCN, todayKey } from "../composables/format";
+import { dayLabel, formatDurationCN, monthLabel, shortDayLabel, todayKey } from "../composables/format";
 import { usePlans } from "../composables/usePlans";
 import { refreshRecords, useRecords } from "../composables/useRecords";
-import { useStats, type RangeDays } from "../composables/useStats";
+import { useStats, type StatsRange } from "../composables/useStats";
 
 /**
  * 记录页。
@@ -20,15 +20,17 @@ import { useStats, type RangeDays } from "../composables/useStats";
  */
 const { plans, nameOf, colorOf } = usePlans();
 const {
-	rangeDays,
-	setRangeDays,
+	range,
+	setRange,
 	filterPlanId,
 	setFilterPlanId,
 	selectedDate,
 	setSelectedDate,
 	month,
 	setMonth,
-	dailyTotals,
+	chartPoints,
+	chartStart,
+	chartEnd,
 	monthTotals,
 	rangeTotalSec,
 	rangeCount,
@@ -38,11 +40,17 @@ const {
 const { sessions, summary, loading: dayLoading, error: dayError, stale, remove } = useRecords();
 const message = useMessage();
 
-const ranges: { days: RangeDays; label: string }[] = [
-	{ days: 7, label: "近 7 天" },
-	{ days: 14, label: "近 14 天" },
-	{ days: 30, label: "近 30 天" },
+const ranges: { key: StatsRange; label: string }[] = [
+	{ key: "week", label: "本周" },
+	{ key: "month", label: "本月" },
 ];
+
+// 图表区间的标题：本周写清这七天的起止，本月直接写月份（图表就是月历那个月）。
+const periodLabel = computed(() => {
+	if (range.value === "month") return monthLabel(month.value);
+	if (!chartStart.value || !chartEnd.value) return "本周";
+	return `本周（${shortDayLabel(chartStart.value)} – ${shortDayLabel(chartEnd.value)}）`;
+});
 
 // 渲染期取一次就够：一直开着跨过午夜属于边角情况，那时后端会用空串自行判定今天。
 const today = todayKey();
@@ -93,14 +101,15 @@ async function onRemove(id: number): Promise<void> {
 			<div class="head">
 				<div class="ranges">
 					<button
-						v-for="range in ranges"
-						:key="range.days"
+						v-for="item in ranges"
+						:key="item.key"
 						type="button"
 						class="range gx-ghost gx-pill"
-						:class="{ 'is-active': rangeDays === range.days }"
-						@click="setRangeDays(range.days)"
+						:class="{ 'is-active': range === item.key }"
+						:data-range="item.key"
+						@click="setRange(item.key)"
 					>
-						{{ range.label }}
+						{{ item.label }}
 					</button>
 				</div>
 				<div class="total">
@@ -130,9 +139,11 @@ async function onRemove(id: number): Promise<void> {
 		<GlassPanel padding="14px 16px">
 			<div class="section-head">
 				<span class="gx-section-title">每日时长</span>
-				<span class="gx-faint">近 {{ rangeDays }} 天</span>
+				<!-- :data-period 要把值绑上：写成无值的 data-period 时 dataset.period 是空串，
+				     tools/ui_probe.mjs 就断言不到区间标题了 -->
+				<span class="gx-faint" :data-period="periodLabel">{{ periodLabel }}</span>
 			</div>
-			<BarChart :points="dailyTotals" />
+			<BarChart :points="chartPoints" />
 
 			<div class="divider"></div>
 
@@ -198,7 +209,8 @@ async function onRemove(id: number): Promise<void> {
 
 <style scoped>
 .records-view {
-	gap: var(--gx-gap);
+	/* 12px 而不是全局的 14：整页高度是按"一屏放得下"量出来的，间距也算在内的 */
+	gap: 12px;
 }
 
 .head {
@@ -246,8 +258,8 @@ async function onRemove(id: number): Promise<void> {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 7px;
-	margin-top: 11px;
-	padding-top: 11px;
+	margin-top: 9px;
+	padding-top: 9px;
 	border-top: 1px solid var(--gx-line);
 }
 
@@ -267,7 +279,7 @@ async function onRemove(id: number): Promise<void> {
 
 .divider {
 	height: 1px;
-	margin: 16px 0 14px;
+	margin: 12px 0 10px;
 	background: var(--gx-line);
 }
 
@@ -275,7 +287,7 @@ async function onRemove(id: number): Promise<void> {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	margin-bottom: 12px;
+	margin-bottom: 10px;
 }
 
 .day-titles {
@@ -339,8 +351,8 @@ async function onRemove(id: number): Promise<void> {
 .list {
 	display: flex;
 	flex-direction: column;
-	gap: 7px;
-	margin-top: 12px;
+	gap: 6px;
+	margin-top: 10px;
 }
 
 .empty {

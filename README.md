@@ -12,8 +12,9 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
   应用只会显示"建第一个计划"的引导页——不选计划就没法开始计时。
 - **正计时**：开始 / 暂停 / 继续 / 结束并保存 / 放弃。暂停区间不计入时长。
 - **归属清晰**：每次会话都记在当时的计划上；计时进行中不允许切换或归档当前计划。
-- **记录与统计**：近 7 / 14 / 30 天柱状图 + 当月热力图日历（按天深浅着色，
-  点某天看当天明细），可按计划筛选；当天还能看到按计划分解的时长占比。
+- **记录与统计**：本周 / 本月柱状图 + 当月热力图日历（按天深浅着色，格子里有日期），
+  可按计划筛选；点某天看当天明细，含按计划的时长拆分。图表与日历讲同一件事——
+  选「本月」时图表画的就是日历当前那个月，翻月两边一起变。
 - **崩溃可恢复**：计时状态每次心跳都落库，异常退出后按规则接回（见"恢复策略"）。
 - **休眠防线**：系统休眠或合盖过夜不会被算成学习时间。
 - **系统托盘**：提示里带当前计划与今日累计；右键菜单只有 显示主窗口 / 设置 / 退出 三项——托盘是入口，不是控制面板。
@@ -148,6 +149,7 @@ tools/
   seed_demo.py       灌一份"像用了两个月"的演示数据，用来截图与肉眼验收界面
   shoot.ps1          启动应用并用 CDP 截图 + 体检界面布局
   ui_probe.mjs       shoot.ps1 调用的 CDP 客户端（零依赖）
+  window_shot.ps1    抓含标题栏的整窗（PrintWindow）——CDP 抓不到非客户区
   tray_icons.ps1     逐个读通知区域里的图标提示文字，数出属于本应用的有几个（只读）
   tray_lifecycle_test.ps1  托盘图标生命周期验证：反复隐藏/显示、退出、多实例、强杀对照
 ```
@@ -287,25 +289,46 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 560x680 -Dark
 # 截图前先灌一份演示数据，否则图表都是空的，什么也看不出来（需要先退出应用）
 python tools\seed_demo.py --clear
 
-# 四个视图各截一张，并打印每屏的视口/内容尺寸、主题、玻璃面板数、backdrop-filter
+# 四个视图各截一张，并打印每屏的视口尺寸、页面内容高度、主题、玻璃面板数、backdrop-filter
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1
 
-# 验收最小尺寸下的布局：内容区只有约 448px 宽
-powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 560x680
+# 验收最小尺寸下的布局：内容区只有约 450px 宽（这一档允许滚动，不许横向溢出）
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 540x720
 
-# 深色（往 <html> 挂 theme-dark 类，不改数据库里的设置）
+# 验收"一屏放得下"：任何一屏的内容高度超过内容区就算失败
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -RequireNoScroll
+
+# 深色：往 <html> 挂 theme-dark 类。注意它**只切 CSS 变量**，
+# 不会切 naive-ui 的主题；要验收真正的深色外观得把库里的 theme 改成 dark。
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Dark
+
+# 截图前做一次脚本化交互（点开归档确认框 / 切到本月），用来验证浮层文字与区间切换
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views plans -Act
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views records -Act
 ```
 
 产物在 `screenshots/`（已 gitignore）。`ui_probe.mjs` 靠导航项上的 `data-view` /
-`data-active` 属性切视图并读状态，所以改动 `NavRail.vue` 时要保留这两个属性。
+`data-active` 属性切视图并读状态，所以改动 `NavRail.vue` 时要保留这两个属性；
+区间切换的断言靠柱状图根节点上的 `data-points` 与区间标题上的 `:data-period`
+（后者必须绑值——写成无值的 `data-period` 时 `dataset.period` 是空串，断言不到东西）。
 
-两个实测踩到的坑，留给下次：
+**页面内滚动要单独量**：文档级 `overflowY` 永远是 false，因为滚动发生在 `.content`
+这个嵌套容器里。探针因此额外报 `.content` 的 `scrollHeight`/`clientHeight`——
+"要不要滚才能看全"只能这样测。
+
+`tools/window_shot.ps1` 补上 CDP 看不到的那一块：用 `PrintWindow(..., PW_RENDERFULLCONTENT)`
+让**窗口自己**把内容画到给定的内存 DC 上，所以不需要窗口可见、也不受遮挡影响，
+标题栏和边框都在图里。毛玻璃开启后标题栏文字是否正常，就靠它取证。
+
+三个实测踩到的坑，留给下次：
 
 - `backdrop-filter` **只写标准属性**，不要自己再补一份 `-webkit-`。压缩器会按目标浏览器
   自动加前缀，但手写双份会被它当成重复声明——实测结果是标准属性被删掉、只剩前缀版。
 - 截图脚本本身不该有副作用。曾经因为空格键是全局快捷键，在记录页误按一下就开始了一次
   计时（数据库里多出一条 `paused` 状态），所以现在空格只在计时页生效。
+- PowerShell 5.1 调 .NET 时，`New-Object Type(a, b, c, d)` 会把四个参数当成**一个**
+  `Object[]` 传进去（报 "Cannot convert System.Object[] to UInt32"），要用
+  `-ArgumentList @(...)`；`Add-Type` 里的 C# 也不支持 `out int _` 这类 C# 7 语法。
 
 ### 托盘图标生命周期
 

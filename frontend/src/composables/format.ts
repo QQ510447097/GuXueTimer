@@ -184,3 +184,8 @@ export function weekdayFromMonday(key: string): number {
 	if (Number.isNaN(stamp)) return 0;
 	return (new Date(stamp).getDay() + 6) % 7;
 }
+
+/** 该日期所在周的周一。日期键非法时原样返回。 */
+export function weekStart(key: string): string {
+	return addDays(key, -weekdayFromMonday(key));
+}

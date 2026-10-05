@@ -28,7 +28,7 @@ function parseArgs(argv) {
 		else if (a === "--height") out.height = Number(argv[++i]);
 		else if (a === "--prefix") out.prefix = argv[++i];
 		else if (a === "--dark") out.dark = true;
-		else if (a === "--dialog") out.dialog = true;
+		else if (a === "--act") out.act = true;
 	}
 	return out;
 }
@@ -135,6 +135,8 @@ const PROBE = `(() => {
 		barPoints: document.querySelectorAll('[data-points]').length
 			? Number(document.querySelector('[data-points]').dataset.points)
 			: -1,
+		// 图表区间的标题（本周（…）/ 某年某月）。区间切换是否生效，靠它 + barPoints 一起判。
+		periodLabel: document.querySelector('[data-period]')?.dataset.period ?? '',
 		backdropFilter: backdrop,
 		panelCount: document.querySelectorAll('.gx-glass').length,
 		themeClass: document.querySelector('.theme-dark') ? 'dark' : 'light',
@@ -144,15 +146,22 @@ const PROBE = `(() => {
 })()`;
 
 /*
- * 截图前的脚本化交互。
+ * 截图前的脚本化交互（--act）。
  *
  * 用文字找按钮而不是类名：类名是样式细节，改一次样式这里就失效；
- * 而"归档"这两个字是产品文案，本来就该稳定。
+ * 而"归档""本月"这些字是产品文案，本来就该稳定。
  */
 const PRE_CAPTURE = {
-	// 点开第一个计划的「归档」确认弹窗（用来验证弹窗按钮的文字可见性）
+	// 点开第一个计划的「归档」确认弹窗（验证弹窗按钮的文字可见性）
 	plans: `(() => {
 		const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '归档');
+		if (!btn) return false;
+		btn.click();
+		return true;
+	})()`,
+	// 切到「本月」（验证区间切换真的会重新取数——这里曾经因为 watcher 被卸载而失效）
+	records: `(() => {
+		const btn = document.querySelector('[data-range="month"]');
 		if (!btn) return false;
 		btn.click();
 		return true;
@@ -208,7 +217,7 @@ async function main() {
 
 		// 需要弹窗的场合（--dialog）：先做一次脚本化交互再截图。
 		let acted = null;
-		if (args.dialog && PRE_CAPTURE[view]) {
+		if (args.act && PRE_CAPTURE[view]) {
 			acted = await cdp.eval(PRE_CAPTURE[view]);
 			await sleep(450);
 		}
