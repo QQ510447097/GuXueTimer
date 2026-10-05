@@ -176,7 +176,7 @@ async function onSave(): Promise<void> {
 		<GlassPanel padding="16px 18px">
 			<p class="gx-section-title">关于</p>
 			<div class="about">
-				<span class="about-name">孤雪学习计时器</span>
+				<span class="about-name">孤雪凝时</span>
 				<span class="gx-muted">一个把专注时间记下来的小工具：计时、记录、计划与休息提醒。</span>
 				<span class="about-stack gx-mono gx-faint">Go + Wails v3 + Vue 3</span>
 			</div>

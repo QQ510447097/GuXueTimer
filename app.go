@@ -127,48 +127,13 @@ func (b *backend) DBPath() string { return b.db.Path() }
 // Close 关闭数据库连接。
 func (b *backend) Close() error { return b.db.Close() }
 
-// runFromTray 执行一次托盘触发的操作（暂停 / 继续）。
+// openSettings 从托盘打开设置页：把窗口叫回前台，再让界面切到设置。
 //
-// 失败时通过事件告知界面而不是静默吞掉——托盘的失效态很容易被忽略，
-// 用户会遇到"点了没反应"却不知道原因。
-func (b *backend) runFromTray(action func() (timer.Snapshot, error)) {
-	if _, err := action(); err != nil {
-		slog.Warn("托盘操作失败", "err", err)
-		b.emitNotice(timer.NoticeWarning, err.Error())
-	}
-}
-
-// startFromTray 从托盘开始计时：计划同样由后端解析，界面不参与。
-//
-// 还没有计划时不只是报错，还把主窗口叫出来——用户需要先建一个计划，
-// 光弹一条通知他也不知道该去哪儿建。
-func (b *backend) startFromTray() {
-	planID, err := b.activePlanID()
-	if err != nil {
-		slog.Warn("托盘开始计时失败", "err", err)
-		b.emitNotice(timer.NoticeWarning, err.Error())
-		b.showMainWindow()
-		return
-	}
-	if _, err := b.timer.Start(planID); err != nil {
-		slog.Warn("托盘开始计时失败", "err", err)
-		b.emitNotice(timer.NoticeWarning, err.Error())
-	}
-}
-
-// stopFromTray 结束会话并保存。
-func (b *backend) stopFromTray() {
-	out, err := b.timer.Stop()
-	if err != nil {
-		slog.Warn("托盘结束计时失败", "err", err)
-		b.emitNotice(timer.NoticeWarning, err.Error())
-		return
-	}
-	if !out.Saved {
-		b.emitNotice(timer.NoticeInfo, "本次时长过短，未记录")
-		return
-	}
-	b.emitRecordsChanged("stopped")
+// 两件事都要做：窗口可能藏在托盘后面，而界面可能停在别的页。
+// 切页是前端的事，所以走事件而不是直接改状态——导航状态的唯一归属在前端。
+func (b *backend) openSettings() {
+	b.showMainWindow()
+	b.emit(eventNavGoto, NavGotoDTO{View: "settings"})
 }
 
 // Settings 返回当前设置副本。

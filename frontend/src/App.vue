@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineComponent, markRaw, onBeforeUnmount, onMounted, ref, watchEffect, type Component } from "vue";
+import { computed, defineComponent, markRaw, onBeforeUnmount, onMounted, watchEffect, type Component } from "vue";
 import { Events } from "@wailsio/runtime";
 import {
 	NConfigProvider,
@@ -17,6 +17,7 @@ import IconPlay from "./components/IconPlay.vue";
 import IconSettings from "./components/IconSettings.vue";
 import NavRail, { type NavItem } from "./components/NavRail.vue";
 import { useHotkeys } from "./composables/useHotkeys";
+import { setViewValidator, useNav } from "./composables/useNav";
 import { usePlans } from "./composables/usePlans";
 import { useSettings } from "./composables/useSettings";
 import { pauseTimer, pullState, resumeTimer, startTimer, useTimer } from "./composables/useTimer";
@@ -97,23 +98,14 @@ const views: Record<string, Component> = {
 	settings: markRaw(SettingsView),
 };
 
-const VIEW_STORAGE_KEY = "gx.activeView";
+// 导航状态在 useNav 里（托盘与视图内部都要能切页，见那边的注释）。
+// 这里把"哪些键合法"交给它，避免页面键在两地各存一份。
+const { active, selectView } = useNav();
+setViewValidator((key) => key in views);
 
-function restoreView(): string {
-	const saved = localStorage.getItem(VIEW_STORAGE_KEY) ?? "";
-	return saved in views ? saved : "timer";
-}
-
-const active = ref(restoreView());
 const currentView = computed(() => views[active.value] ?? views.timer);
 
-function selectView(key: string): void {
-	if (!(key in views)) return;
-	active.value = key;
-	localStorage.setItem(VIEW_STORAGE_KEY, key);
-}
-
-// 键盘 1-4 切视图，空格开始/暂停。桌面工具该有，也让截图脚本多一条降级路径。
+// 键盘 1-N 切视图，空格开始/暂停。桌面工具该有，也让截图脚本多一条降级路径。
 useHotkeys({
 	onView: (index) => {
 		const item = navItems[index];
@@ -161,7 +153,8 @@ onMounted(() => {
 					<OnboardingView v-if="needsOnboarding" />
 
 					<div v-else class="shell">
-						<NavRail :items="navItems" :active="active" @select="selectView" />
+						<NavRail :items="navItems" :active="active" :brand-title="'孤雪凝时'"
+							@select="selectView" />
 						<main class="content gx-scroll">
 							<component :is="currentView" />
 						</main>

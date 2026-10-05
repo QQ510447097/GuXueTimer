@@ -99,6 +99,19 @@ function ensureBound(): void {
 	});
 }
 
+/*
+ * 在**模块作用域**里绑定，而不是在 useStats() 里。
+ *
+ * 这不是风格问题，是一个已经发生过的 bug：useStats() 是在组件的 setup 里调用的，
+ * 在那里创建的 watch 属于那个组件实例，Vue 会在组件卸载时自动把它停掉；
+ * 而上面的 bound 标志是模块级的，它已经是 true，于是再也不会重新注册。
+ * 后果是"离开记录页再回来"之后，改区间 / 改计划筛选 / 月历翻月都只改了按钮高亮，
+ * 查询一次都不会再发——图和列表停在旧数据上。
+ *
+ * 模块作用域没有当前组件实例，watch 不会被自动回收，生命周期与应用一致。
+ */
+ensureBound();
+
 const rangeTotalSec = computed(() => dailyTotals.value.reduce((sum, p) => sum + p.totalSec, 0));
 const rangeCount = computed(() => dailyTotals.value.reduce((sum, p) => sum + p.count, 0));
 

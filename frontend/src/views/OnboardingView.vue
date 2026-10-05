@@ -65,9 +65,9 @@ async function submit(): Promise<void> {
 			<div class="brand">
 				<span class="mark" aria-hidden="true">雪</span>
 				<div class="titles">
-					<h1 class="title">孤雪学习计时器</h1>
+					<h1 class="title">孤雪凝时</h1>
 					<p class="sub gx-muted">
-						先建一个学习计划。之后每一段专注都会记在它名下，可以随时改名、归档。
+						先建一个计划。之后每一段专注都会记在它名下，可以随时改名、归档。
 					</p>
 				</div>
 			</div>

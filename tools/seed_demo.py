@@ -144,7 +144,7 @@ def seed(conn: sqlite3.Connection, days: int) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="给孤雪学习计时器灌演示数据")
+    parser = argparse.ArgumentParser(description="给孤雪凝时灌演示数据")
     parser.add_argument("db", nargs="?", default=default_db_path(), help="timer.db 路径")
     parser.add_argument("--days", type=int, default=75, help="灌多少天的历史（默认 75）")
     parser.add_argument("--clear", action="store_true", help="先清空记录与计划")

@@ -59,9 +59,17 @@ export function buildThemeOverrides(dark: boolean): GlobalThemeOverrides {
 			textColor3: text3,
 			textColorDisabled: text3,
 
-			// 页面底色交给 App.vue 的背景层，这里保持透明
+			// 页面底色交给 App.vue 的背景层，所以 bodyColor 透明。
+			//
+			// 但 baseColor 千万不能跟着透明——它虽然叫"base"，语义其实是
+			// **画在有色表面之上的前景对比色**：naive-ui 把 Button 的
+			// textColorPrimary/Info/Success/Warning/Error 全指向它，
+			// Radio 浅色的 buttonColor/buttonColorActive 也指向它，
+			// 而 Radio 深色反过来用 buttonTextColorActive: baseColor。
+			// 这里写 transparent 的后果是：所有填充型按钮的文字消失（归档弹窗
+			// 变成一个橙色空按钮），深色下选中的单选按钮变成"蓝底 + 透明字"。
+			// 不覆盖它就拿到主题默认值（浅色 #FFF / 深色 #000），对比度正确。
 			bodyColor: "transparent",
-			baseColor: "transparent",
 			cardColor: surface,
 			modalColor: surface,
 			popoverColor: surfaceSolid,
@@ -151,6 +159,18 @@ export function buildThemeOverrides(dark: boolean): GlobalThemeOverrides {
 		Radio: {
 			buttonBorderRadius: "999px",
 			color: inputBg,
+			// 按钮型单选的四个状态色显式给全，不依赖主题默认。
+			//
+			// 默认值在两种主题下是两套相反的约定：浅色用
+			// buttonColorActive: baseColor（白底）+ buttonTextColorActive: primaryColor（蓝字），
+			// 深色反过来用 primaryColor 做底 + baseColor 做字。这里统一成
+			// "主色底 + 与底色对比的字"，两种主题都不需要猜。
+			buttonColor: "transparent",
+			buttonColorActive: accent,
+			buttonTextColor: text2,
+			buttonTextColorHover: accent,
+			// 深色下主色是亮蓝，白字只有 2.6:1，用近黑的底色才够清楚
+			buttonTextColorActive: dark ? "#0A1220" : "#FFFFFF",
 		},
 
 		Tag: {

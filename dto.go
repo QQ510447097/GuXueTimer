@@ -16,6 +16,11 @@ const (
 	eventPlansChange   = "plans:changed"
 	eventReminderBreak = "reminder:break"
 	eventNotice        = "notice"
+	// eventNavGoto 让后端请求界面切换到某一页。
+	//
+	// 需要它是因为"从外部打开某一页"这件事只有后端知道（托盘菜单的「设置」、
+	// 以后可能的全局快捷键）。导航状态的归属在前端，所以这里只发意图，不直接改。
+	eventNavGoto = "nav:goto"
 )
 
 // 时间戳统一用带本地时区偏移的 RFC3339 字符串。
@@ -141,6 +146,11 @@ type SettingsDTO struct {
 // 多一种几乎相同的载荷类型没有收益。
 type ChangedDTO struct {
 	Reason string `json:"reason"`
+}
+
+// NavGotoDTO 请求界面切换到某一页。View 取计时/记录/计划/成就/个性化/设置 的页面键。
+type NavGotoDTO struct {
+	View string `json:"view"`
 }
 
 // ReminderEventDTO 是休息提醒事件的载荷。

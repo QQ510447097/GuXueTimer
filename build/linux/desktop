@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
-Name=孤雪学习计时器
-Comment=孤雪学习计时器 —— 专注计时与学习记录
+Name=孤雪凝时
+Comment=孤雪凝时 —— 专注计时与学习记录
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/GuXueTimer %u
 Terminal=false

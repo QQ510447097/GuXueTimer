@@ -24,7 +24,7 @@ import (
 // HKCU\Software\Classes\AppUserModelId\ 下。所以这里是整个项目里唯一一处
 // 中文会进入系统标识的地方；冒烟测试用 "systemToast=true" 断言把关，
 // 一旦那条挂了，就把这里退回成 ASCII 的 "GuXueTimer"，其余中文名不受影响。
-const appDisplayName = "孤雪学习计时器"
+const appDisplayName = "孤雪凝时"
 
 // Wails 通过 embed 把前端产物打进二进制。
 //
@@ -41,6 +41,7 @@ func init() {
 	application.RegisterEvent[TimerStateDTO](eventTimerState)
 	application.RegisterEvent[ChangedDTO](eventRecordsChange)
 	application.RegisterEvent[ChangedDTO](eventPlansChange)
+	application.RegisterEvent[NavGotoDTO](eventNavGoto)
 	application.RegisterEvent[ReminderEventDTO](eventReminderBreak)
 	application.RegisterEvent[NoticeDTO](eventNotice)
 }

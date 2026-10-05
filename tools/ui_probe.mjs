@@ -18,7 +18,7 @@ import { join } from "node:path";
 const DEFAULT_VIEWS = ["timer", "records", "plans", "settings"];
 
 function parseArgs(argv) {
-	const out = { port: 9222, out: "screenshots", views: DEFAULT_VIEWS, width: 0, height: 0, prefix: "", dark: false };
+	const out = { port: 9222, out: "screenshots", views: DEFAULT_VIEWS, width: 0, height: 0, prefix: "", dark: false, dialog: false };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--port") out.port = Number(argv[++i]);
@@ -28,6 +28,7 @@ function parseArgs(argv) {
 		else if (a === "--height") out.height = Number(argv[++i]);
 		else if (a === "--prefix") out.prefix = argv[++i];
 		else if (a === "--dark") out.dark = true;
+		else if (a === "--dialog") out.dialog = true;
 	}
 	return out;
 }
@@ -103,11 +104,14 @@ class Cdp {
 	}
 }
 
-/** 在页面里跑的体检：横向溢出、毛玻璃、关键元素。 */
+/** 在页面里跑的体检：横向溢出、页面内滚动、毛玻璃、关键元素。 */
 const PROBE = `(() => {
 	const de = document.documentElement;
 	const panel = document.querySelector('.gx-glass');
 	const active = document.querySelector('[data-view][data-active="true"]');
+	// 页面内容区的滚动量。文档级的 overflowY 永远是 false——滚动发生在
+	// .content 这个嵌套滚动容器里，所以"这一屏要不要滚"只能这样测。
+	const content = document.querySelector('main.content');
 	// 压缩器会把 backdrop-filter 与 -webkit-backdrop-filter 合并成一个（实测只留了
 	// 前缀版），所以两个属性都要读，否则每次体检都会误报成 "none"。
 	let backdrop = '(没有找到 .gx-glass)';
@@ -125,6 +129,12 @@ const PROBE = `(() => {
 		scrollHeight: de.scrollHeight,
 		overflowX: de.scrollWidth > window.innerWidth + 1,
 		overflowY: de.scrollHeight > window.innerHeight + 1,
+		contentScroll: content ? content.scrollHeight : -1,
+		contentClient: content ? content.clientHeight : -1,
+		contentOverflowY: content ? content.scrollHeight > content.clientHeight + 1 : false,
+		barPoints: document.querySelectorAll('[data-points]').length
+			? Number(document.querySelector('[data-points]').dataset.points)
+			: -1,
 		backdropFilter: backdrop,
 		panelCount: document.querySelectorAll('.gx-glass').length,
 		themeClass: document.querySelector('.theme-dark') ? 'dark' : 'light',
@@ -132,6 +142,22 @@ const PROBE = `(() => {
 		viewText: (document.querySelector('main')?.innerText ?? '').slice(0, 120),
 	};
 })()`;
+
+/*
+ * 截图前的脚本化交互。
+ *
+ * 用文字找按钮而不是类名：类名是样式细节，改一次样式这里就失效；
+ * 而"归档"这两个字是产品文案，本来就该稳定。
+ */
+const PRE_CAPTURE = {
+	// 点开第一个计划的「归档」确认弹窗（用来验证弹窗按钮的文字可见性）
+	plans: `(() => {
+		const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '归档');
+		if (!btn) return false;
+		btn.click();
+		return true;
+	})()`,
+};
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
@@ -180,6 +206,13 @@ async function main() {
 
 		await sleep(500);
 
+		// 需要弹窗的场合（--dialog）：先做一次脚本化交互再截图。
+		let acted = null;
+		if (args.dialog && PRE_CAPTURE[view]) {
+			acted = await cdp.eval(PRE_CAPTURE[view]);
+			await sleep(450);
+		}
+
 		const probe = await cdp.eval(PROBE);
 		// 名字里带上限定条件，方便同一个视图的多种尺寸/主题摆在一起对比。
 		// 尺寸只出现一次：--prefix 可能本身就是尺寸（shoot.ps1 就是这么传的）。
@@ -190,7 +223,7 @@ async function main() {
 		const file = join(args.out, name);
 		await cdp.shoot(file);
 
-		report.views.push({ requested: view, clicked, ...probe, file });
+		report.views.push({ requested: view, clicked, acted, ...probe, file });
 	}
 
 	ws.close();

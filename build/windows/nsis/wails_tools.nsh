@@ -11,7 +11,7 @@
     !define INFO_COMPANYNAME "GuDuXue"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "孤雪学习计时器"
+    !define INFO_PRODUCTNAME "孤雪凝时"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "2.0.0"

@@ -32,6 +32,13 @@ export interface DaySummaryDTO {
 }
 
 /**
+ * NavGotoDTO 请求界面切换到某一页。View 取计时/记录/计划/成就/个性化/设置 的页面键。
+ */
+export interface NavGotoDTO {
+    "view": string;
+}
+
+/**
  * NoticeDTO 是后端抛给界面的一句话提示。
  */
 export interface NoticeDTO {

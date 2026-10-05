@@ -4,25 +4,24 @@ import (
 	"log/slog"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-
-	"goxuetimer/internal/timer"
 )
 
-// trayController 管理托盘图标、菜单，以及菜单状态与计时状态的同步。
+// trayController 管理托盘图标与右键菜单。
 type trayController struct {
 	app     *application.App
 	backend *backend
 	tray    *application.SystemTray
 	menu    *application.Menu
-
-	statusItem *application.MenuItem
-	startItem  *application.MenuItem
-	pauseItem  *application.MenuItem
-	resumeItem *application.MenuItem
-	stopItem   *application.MenuItem
 }
 
 // newTrayController 创建托盘图标与菜单。
+//
+// 菜单只有三项：显示主窗口 / 设置 / 退出。
+//
+// 开始、暂停、继续、结束这些**功能**刻意不放这里（早先版本放过）：
+// 托盘菜单是个"入口"，不是控制面板——同一个动作在应用内和托盘各有一套入口，
+// 只会让人犹豫该点哪个，而托盘那套还看不见当前状态（今日累计、当前计划）。
+// 想操作就左键点开窗口，那里有完整的状态与反馈。
 //
 // 有意不使用 AttachWindow：那是"在托盘旁边弹一个小面板"的语义，
 // 而我们要的是把真正的主窗口叫回来，所以左键点击走 OnClick 显式处理。
@@ -32,29 +31,14 @@ func newTrayController(app *application.App, b *backend, icon []byte) *trayContr
 	tray := app.SystemTray.New()
 	tray.SetIcon(icon)
 	tray.SetTooltip(appDisplayName)
-	// 左键：把主窗口叫回前台。
+	// 左键：把主窗口叫回前台。这是托盘的主要交互。
 	tray.OnClick(b.showMainWindow)
 	// 不用 SetTemplateIcon：它在 Windows 上是空实现。
 
 	menu := app.NewMenu()
-	t.statusItem = menu.Add("今日累计 --")
-	t.statusItem.SetEnabled(false)
-	menu.AddSeparator()
-
-	t.startItem = menu.Add("开始")
-	t.startItem.OnClick(func(*application.Context) { b.startFromTray() })
-
-	t.pauseItem = menu.Add("暂停")
-	t.pauseItem.OnClick(func(*application.Context) { b.runFromTray(b.timer.Pause) })
-
-	t.resumeItem = menu.Add("继续")
-	t.resumeItem.OnClick(func(*application.Context) { b.runFromTray(b.timer.Resume) })
-
-	t.stopItem = menu.Add("结束并保存")
-	t.stopItem.OnClick(func(*application.Context) { b.stopFromTray() })
-
-	menu.AddSeparator()
 	menu.Add("显示主窗口").OnClick(func(*application.Context) { b.showMainWindow() })
+	menu.Add("设置").OnClick(func(*application.Context) { b.openSettings() })
+	menu.AddSeparator()
 	menu.Add("退出").OnClick(func(*application.Context) { b.quit() })
 
 	tray.SetMenu(menu)
@@ -84,30 +68,14 @@ func (t *trayController) destroy() {
 
 // update 把最新状态同步到托盘。
 //
-// 即使状态没变也要刷新：今日累计一直在涨。
-// SetLabel/SetEnabled 只改内存字段，真正的菜单在弹出时按这些字段重建，
-// 所以在后台 goroutine 里调用是安全的。
+// 菜单里已经没有随状态变化的东西了，所以这里只剩提示文字——它是唯一的常驻反馈
+// （不开窗口也能看到"今天记了多久、记在哪一科"）。菜单项自己不带状态，
+// 也就不需要在每次状态变化时重建菜单。
 func (t *trayController) update(dto TimerStateDTO) {
 	total := dto.TodayTotalSec + dto.CurrentSec
-	label := "今日累计 " + formatDurationCN(total)
-	t.statusItem.SetLabel(label)
-
-	// 托盘提示里带上当前计划：一眼就能确认"现在记的是哪一科"。
 	tip := appDisplayName
 	if dto.PlanName != "" {
 		tip += " · " + dto.PlanName
 	}
-	t.tray.SetTooltip(tip + " · " + label)
-
-	running := dto.State == string(timer.StateRunning)
-	idle := dto.State == string(timer.StateIdle)
-
-	t.startItem.SetEnabled(idle)
-	t.pauseItem.SetEnabled(running)
-	t.resumeItem.SetEnabled(!running && !idle)
-	t.stopItem.SetEnabled(!idle)
-
-	// 菜单状态改完必须 Update：应用未跑起来时它是空操作，
-	// 所以 ApplicationStarted 之后还会再刷一次。
-	t.menu.Update()
+	t.tray.SetTooltip(tip + " · 今日 " + formatDurationCN(total))
 }

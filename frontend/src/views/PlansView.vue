@@ -154,7 +154,7 @@ function remove(plan: PlanDTO): void {
 	<section class="plans-view gx-col">
 		<GlassPanel padding="14px 16px">
 			<div class="create-head">
-				<span class="gx-section-title">学习计划</span>
+				<span class="gx-section-title">计划</span>
 				<span class="gx-spacer"></span>
 				<button type="button" class="act gx-ghost gx-pill" @click="showCreate = !showCreate">
 					<IconPlus :size="13" />

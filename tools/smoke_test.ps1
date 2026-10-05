@@ -159,7 +159,7 @@ function Get-DbInfo {
     return $info
 }
 
-Write-Host "`n=== 孤雪学习计时器 冒烟测试 ===" -ForegroundColor Cyan
+Write-Host "`n=== 孤雪凝时 冒烟测试 ===" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------- 前置检查
 

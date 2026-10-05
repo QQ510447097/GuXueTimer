@@ -12,6 +12,7 @@ import type * as main$0 from "../../../../../goxuetimer/models.js";
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "nav:goto": main$0.NavGotoDTO;
             "notice": main$0.NoticeDTO;
             "plans:changed": main$0.ChangedDTO;
             "records:changed": main$0.ChangedDTO;

@@ -16,6 +16,8 @@ export interface NavItem {
 defineProps<{
 	items: NavItem[];
 	active: string;
+	/** 品牌图标的悬浮说明。 */
+	brandTitle?: string;
 }>();
 
 const emit = defineEmits<{
@@ -25,10 +27,13 @@ const emit = defineEmits<{
 
 <template>
 	<aside class="rail gx-glass">
-		<div class="brand">
+		<div class="brand" :title="brandTitle">
 			<div class="brand-mark">雪</div>
-			<span class="brand-name">孤雪</span>
 		</div>
+
+		<!-- 品牌区与导航之间加一条分割线：图标放大之后两者的视觉重量接近，
+		     没有线会读成"图标也是第一个导航项"。 -->
+		<div class="divider" aria-hidden="true"></div>
 
 		<nav class="nav">
 			<button v-for="item in items" :key="item.key" type="button" class="nav-item gx-lift"
@@ -44,11 +49,11 @@ const emit = defineEmits<{
 
 <style scoped>
 .rail {
-	/* 76px：够放下一个图标加两个字的标签，又不至于把内容区挤到没法放月历 */
+	/* 76px：够放下图标 + 两个字的标签，又不至于把内容区挤到没法放月历 */
 	flex: 0 0 76px;
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
+	gap: 12px;
 	padding: 16px 8px 14px;
 	border-radius: 0 var(--gx-r-lg) var(--gx-r-lg) 0;
 	border-left: none;
@@ -56,29 +61,32 @@ const emit = defineEmits<{
 
 .brand {
 	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 5px;
+	justify-content: center;
 }
 
+/*
+ * 品牌图标刻意比导航图标大一圈（44 vs 19）：它是这一栏里唯一的"标识"，
+ * 和导航项等大时读起来就像"又一个按钮"。底下也不再挂文字——窗口标题栏
+ * 已经写着应用名，竖排的两个字只会让这一栏显得挤。
+ */
 .brand-mark {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 34px;
-	height: 34px;
-	border-radius: 12px;
+	width: 44px;
+	height: 44px;
+	border-radius: 15px;
 	background: var(--gx-accent-grad);
 	color: #fff;
-	font-size: 17px;
+	font-size: 23px;
 	font-weight: 700;
-	box-shadow: 0 6px 16px -6px rgba(59, 130, 246, 0.55);
+	box-shadow: 0 8px 20px -8px rgba(59, 130, 246, 0.6);
 }
 
-.brand-name {
-	font-size: 11px;
-	color: var(--gx-text-2);
-	letter-spacing: 0.06em;
+.divider {
+	height: 1px;
+	margin: 0 4px;
+	background: var(--gx-line);
 }
 
 .nav {

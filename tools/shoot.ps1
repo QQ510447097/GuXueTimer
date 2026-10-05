@@ -32,6 +32,8 @@ param(
     [string]$Views = "timer,records,plans,settings",
     [string]$Size = "",
     [switch]$Dark,
+    [switch]$Dialog,
+    [switch]$RequireNoScroll,
     [string]$Out = "screenshots",
     [int]$Port = 9222,
     [int]$WaitSec = 25,
@@ -140,6 +142,8 @@ if ($Size -match '^(\d+)x(\d+)$') {
 if ($prefix) { $nodeArgs += @('--prefix', $prefix) }
 # 深色：探测脚本往 <html> 上加 theme-dark 类即可，不动数据库里的主题设置。
 if ($Dark) { $nodeArgs += '--dark' }
+# 弹窗：截图前先做一次脚本化交互（例如点开归档确认框），用来验证浮层里的文字对比度。
+if ($Dialog) { $nodeArgs += '--dialog' }
 
 $json = & $node @nodeArgs
 $exit = $LASTEXITCODE
@@ -156,8 +160,9 @@ Write-Host "`n=== 界面体检 ===" -ForegroundColor Cyan
 
 # 这个脚本同时是一道界面回归检查，不只是"看看图"：
 #   - 每个视图都要能点到（导航项存在、点击后真的切过去了）
-#   - 任何一屏都不许出现横向滚动条（窗口最小 560x680，内容区只有约 448px 宽）
+#   - 任何一屏都不许出现横向滚动条（窗口最小 540x720，内容区只有约 450px 宽）
 #   - 每屏都应当有玻璃面板，否则说明视图没渲染出来
+#   - -RequireNoScroll 时，页面内容不许超出一屏（用来验收"不用滚就能看全"）
 $failures = New-Object System.Collections.Generic.List[string]
 
 foreach ($v in $report.views) {
@@ -166,13 +171,21 @@ foreach ($v in $report.views) {
     if ($v.clicked -and $v.activeView -ne $v.requested) { $problems.Add("点击后停在了 '$($v.activeView)'") }
     if ($v.overflowX) { $problems.Add("有横向滚动条（内容 $($v.scrollWidth) > 视口 $($v.innerWidth)）") }
     if ($v.panelCount -lt 1) { $problems.Add('一个 .gx-glass 面板都没有，视图可能没渲染') }
+    if ($RequireNoScroll -and $v.contentOverflowY) {
+        $problems.Add("页面内容超出一屏（$($v.contentScroll) > $($v.contentClient)）")
+    }
 
     $ok = $problems.Count -eq 0
     $status = if ($ok) { 'PASS' } else { 'FAIL' }
     $color = if ($ok) { 'Green' } else { 'Red' }
     Write-Host "  [$status] 视图 $($v.requested) -> 实际 '$($v.activeView)'" -ForegroundColor $color
-    Write-Host "         视口 $($v.innerWidth)x$($v.innerHeight) / 内容 $($v.scrollWidth)x$($v.scrollHeight)"
+    Write-Host "         视口 $($v.innerWidth)x$($v.innerHeight) / 文档 $($v.scrollWidth)x$($v.scrollHeight)"
+    # 页面内是嵌套滚动，文档级尺寸看不出"要不要滚"，所以单列一行内容区尺寸
+    $scrollNote = if ($v.contentOverflowY) { '要滚动' } else { '一屏放得下' }
+    Write-Host "         内容区 $($v.contentClient) 高 / 实际 $($v.contentScroll) 高（$scrollNote）"
+    if ($v.barPoints -ge 0) { Write-Host "         柱状图数据点 $($v.barPoints) 根" }
     Write-Host "         主题 $($v.themeClass) / 玻璃面板 $($v.panelCount) 个 / backdrop-filter: $($v.backdropFilter)"
+    if ($null -ne $v.acted) { Write-Host "         截图前交互: $($v.acted)" }
     foreach ($p in $problems) {
         Write-Host "         ! $p" -ForegroundColor Red
         $failures.Add("$($v.requested): $p")

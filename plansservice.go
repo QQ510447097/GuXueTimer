@@ -13,7 +13,7 @@ import (
 // 计划相关的错误。文案直接给用户看，所以写成完整的中文句子。
 var (
 	// ErrNoPlan 在"还没有任何计划就想开始计时"时返回。
-	ErrNoPlan = errors.New("请先创建一个学习计划")
+	ErrNoPlan = errors.New("请先创建一个计划")
 	// ErrPlanNameEmpty 名称去空白后为空。
 	ErrPlanNameEmpty = errors.New("计划名称不能为空")
 	// ErrPlanNameTooLong 名称超过 MaxPlanNameLen 个字符。
@@ -149,7 +149,7 @@ func (s *PlansService) Delete(id int64) error {
 		return err
 	}
 	if n > 0 {
-		return fmt.Errorf("这个计划下有 %d 条学习记录，不能删除；请改成「归档」", n)
+		return fmt.Errorf("这个计划下有 %d 条记录，不能删除；请改成「归档」", n)
 	}
 	if err := s.b.db.DeletePlan(id); err != nil {
 		return err

@@ -16,6 +16,7 @@ export type {
     ChangedDTO,
     DailyTotalDTO,
     DaySummaryDTO,
+    NavGotoDTO,
     NoticeDTO,
     PlanDTO,
     ReminderEventDTO,

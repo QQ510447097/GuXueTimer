@@ -8,9 +8,9 @@ version: '3'
 # build/windows/info.json 与 .syso（即 exe 的版本信息与清单）。
 info:
   companyName: "GuDuXue"
-  productName: "孤雪学习计时器"
+  productName: "孤雪凝时"
   productIdentifier: "com.guduxue.guxuetimer"
-  description: "孤雪学习计时器 —— 专注计时与学习记录"
+  description: "孤雪凝时 —— 专注计时与学习记录"
   copyright: "(c) 2026, GuDuXue"
   comments: "Go + Wails v3 + Vue 3"
   version: "2.0.0"

@@ -26,7 +26,7 @@
     这个脚本是只读的：不改设置、不点图标、不动鼠标。
 
 .PARAMETER Match
-    判定为本应用的提示文字前缀，默认取"孤雪学习计时器"。
+    判定为本应用的提示文字前缀，默认取"孤雪凝时"。
 
 .PARAMETER Quiet
     只输出一行机器可读的计数（mine=N），供脚本取用。
@@ -37,7 +37,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Match = "孤雪学习计时器",
+    [string]$Match = "孤雪凝时",
     [switch]$Quiet
 )
 

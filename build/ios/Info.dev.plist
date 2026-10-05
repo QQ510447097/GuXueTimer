@@ -3,7 +3,7 @@
 <plist version="1.0">
 	<dict>
 		<key>CFBundleDisplayName</key>
-		<string>孤雪学习计时器 (Dev)</string>
+		<string>孤雪凝时 (Dev)</string>
 		<key>CFBundleExecutable</key>
 		<string>GuXueTimer</string>
 		<key>CFBundleGetInfoString</key>
@@ -11,7 +11,7 @@
 		<key>CFBundleIdentifier</key>
 		<string>com.guduxue.guxuetimer.dev</string>
 		<key>CFBundleName</key>
-		<string>孤雪学习计时器 (Dev)</string>
+		<string>孤雪凝时 (Dev)</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>

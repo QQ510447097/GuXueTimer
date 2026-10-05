@@ -4,10 +4,10 @@ import { onBeforeUnmount, onMounted } from "vue";
  * 全局键盘快捷键。
  *
  * 桌面工具该有的东西：不用把鼠标移到按钮上也能开始/暂停。同时它也是界面自动化的
- * 一条降级路径——拿不到调试端口时，还能靠按键把四个视图依次切出来截图。
+ * 一条降级路径——拿不到调试端口时，还能靠按键把各个视图依次切出来截图。
  */
 export interface HotkeyHandlers {
-	/** 数字键 1..4，参数是 0 基的下标。 */
+	/** 数字键 1..9，参数是 0 基的下标；越界的交给调用方忽略。 */
 	onView?: (index: number) => void;
 	/** 空格：开始 / 暂停 / 继续。 */
 	onToggleTimer?: () => void;
@@ -39,7 +39,7 @@ export function useHotkeys(handlers: HotkeyHandlers): void {
 
 		if (hasOpenDialog()) return;
 
-		if (ev.key >= "1" && ev.key <= "4") {
+		if (ev.key >= "1" && ev.key <= "9") {
 			handlers.onView?.(Number(ev.key) - 1);
 			ev.preventDefault();
 			return;
