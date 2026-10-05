@@ -29,7 +29,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Views = "timer,records,plans,personalize,settings",
+    [string]$Views = "timer,records,plans,achievements,personalize,settings",
     [string]$Size = "",
     [switch]$Dark,
     [switch]$Act,

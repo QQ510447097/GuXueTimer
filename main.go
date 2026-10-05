@@ -91,6 +91,7 @@ func main() {
 			application.NewService(NewPlansService(b)),
 			application.NewService(NewSettingsService(b)),
 			application.NewService(NewPersonalizationService(b)),
+			application.NewService(NewAchievementsService(b)),
 			// 通知服务自己实现了 ServiceStartup/ServiceShutdown：
 			// 注册之后它会在启动时完成 Windows 通知所需的注册。
 			application.NewService(b.notifier),

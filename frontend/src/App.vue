@@ -12,6 +12,7 @@ import {
 } from "naive-ui";
 import type { NoticeDTO, ReminderEventDTO } from "../bindings/goxuetimer/models";
 import IconCalendar from "./components/IconCalendar.vue";
+import IconMedal from "./components/IconMedal.vue";
 import IconPlan from "./components/IconPlan.vue";
 import IconPlay from "./components/IconPlay.vue";
 import IconSettings from "./components/IconSettings.vue";
@@ -22,6 +23,7 @@ import { setViewValidator, useNav } from "./composables/useNav";
 import { usePlans } from "./composables/usePlans";
 import { useSettings } from "./composables/useSettings";
 import { pauseTimer, pullState, resumeTimer, startTimer, useTimer } from "./composables/useTimer";
+import AchievementsView from "./views/AchievementsView.vue";
 import OnboardingView from "./views/OnboardingView.vue";
 import PersonalizeView from "./views/PersonalizeView.vue";
 import PlansView from "./views/PlansView.vue";
@@ -90,6 +92,7 @@ const navItems: NavItem[] = [
 	{ key: "timer", label: "计时", icon: markRaw(IconPlay) },
 	{ key: "records", label: "记录", icon: markRaw(IconCalendar) },
 	{ key: "plans", label: "计划", icon: markRaw(IconPlan) },
+	{ key: "achievements", label: "成就", icon: markRaw(IconMedal) },
 	// 个性化放在设置前面：它管的是"长什么样"（主题、首页卡片），
 	// 而设置管的是"怎么工作"（提醒、托盘、数据）。先外貌后机制，读起来更顺。
 	{ key: "personalize", label: "个性化", icon: markRaw(IconSparkle) },
@@ -100,6 +103,7 @@ const views: Record<string, Component> = {
 	timer: markRaw(TimerView),
 	records: markRaw(RecordsView),
 	plans: markRaw(PlansView),
+	achievements: markRaw(AchievementsView),
 	personalize: markRaw(PersonalizeView),
 	settings: markRaw(SettingsView),
 };

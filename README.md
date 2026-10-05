@@ -11,10 +11,13 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 - **计划**：新建 / 改名 / 换色 / 排序 / 归档 / 删除。没有任何在用的计划时，
   应用只会显示"建第一个计划"的引导页——不选计划就没法开始计时。
 - **正计时**：开始 / 暂停 / 继续 / 结束并保存 / 放弃。暂停区间不计入时长。
-- **归属清晰**：每次会话都记在当时的计划上；计时进行中不允许切换或归档当前计划。
+- **归属清晰**：每次会话都记在当时的计划上。切换计划时，正在进行的这一段会**先结算**
+  到原来那个计划上再切过去——不需要先手动结束一次，归属也不会丢。
 - **记录与统计**：本周 / 本月柱状图 + 当月热力图日历（按天深浅着色，格子里有日期），
   可按计划筛选；点某天看当天明细，含按计划的时长拆分。图表与日历讲同一件事——
   选「本月」时图表画的就是日历当前那个月，翻月两边一起变。
+- **成就**：徽章完全由历史记录推导（第一步 / 十小时 / 三日不辍），
+  顶部带累计时长、当前与最长连续天数。加新成就就是往定义表里追加一条。
 - **崩溃可恢复**：计时状态每次心跳都落库，异常退出后按规则接回（见"恢复策略"）。
 - **个性化**：主题（跟随系统 / 浅色 / 深色）与计时页下方那张装饰卡片。
   卡片可以是语录（内置约 40 句古典名句，默认"每日一句"按日期自动换，可换一句、
@@ -28,7 +31,36 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 - **单实例**：重复启动只会把已有窗口叫回前台，不会出现两个进程抢数据库。
 
 不做的事（有意留白）：番茄钟、手动补录/编辑记录、每日目标、数据导出、开机自启、
-云同步、把记录批量改挂到别的计划、安装包。
+云同步、把记录批量改挂到别的计划、安装包、成就的解锁时间戳（见下）。
+
+## 成就怎么加
+
+成就**不做持久化**，完全由 `sessions` 表推导。好处是不必迁移，也不会出现
+"库里的解锁状态与真实记录对不上"这种修不了的问题；代价是没有"解锁日期"
+（要那个就得再加一张表，目前不值得）。
+
+加一个成就 = 往 `internal/achievements/achievements.go` 的 `All` 里追加一条：
+
+```go
+{
+    ID: "hours-50", Name: "五十小时", Tier: TierGold, Unit: "小时", Target: 50,
+    Description: "累计专注满 50 小时。",
+    Value: func(s Stats) int64 { return s.TotalSec / 3600 },
+},
+```
+
+前端不用改：列表、进度条、解锁状态都由这一份定义驱动。想让徽章有自己的图，
+放一张 `frontend/public/badges/<id>.png`（规格见该目录下的 README），
+没有图会自动回退到内置的矢量奖章。
+
+**有一条硬约束：`Value` 必须单调不减。** 用户一旦拿到徽章就不该再丢，
+所以不能用"当前连续天数"这类会归零的量当判据（`streak-3` 用的是**最长**连续天数）。
+`TestEvaluate_Monotonic` 会守住这一点。
+
+统计口径都在 `internal/store/stats.go` 里，一次查完所有量：现在只有三个成就，
+但成就一定会越加越多，每加一个就多扫一遍全表不划算。深夜/早起按
+`substr(started_at, 12, 2)`（本地小时）分，两段刻意不重叠——凌晨两点算深夜不算早起，
+把一个熬夜的人夸成早起的人是更糟的错误。
 
 ## 界面
 
@@ -308,8 +340,10 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 560x680 -Dark
   暂停不累加、缩短间隔立刻触发、新会话从零重算、重开提醒时基准重对齐
 - 主包集成测试：完整计时流程落库、计划服务的全套校验（重名、配色白名单、
   长度、控制字符）、归档/删除当前计划后自动纠正、有记录的计划拒绝删除、
-  计时中拒绝切换计划、保存设置不会清掉当前计划、心跳驱动提醒
-  （含"事件里的提醒进度不能过期"这条不变量）
+  切换计划时先结算（含"点的是当前计划就什么都不做"与"时长过短仍切换"两条）、
+  删除正在计时的当前计划被拒且无副作用、保存设置不会清掉当前计划与背景图、
+  背景图导入与 `/user/` 中间件（含路径穿越）、心跳驱动提醒
+  （含"事件里的提醒进度不能过期"这条不变量）、成就的阈值与单调性
 
 ### 端到端冒烟测试
 
@@ -357,7 +391,7 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 560x680 -Dark
 # 截图前先灌一份演示数据，否则图表都是空的，什么也看不出来（需要先退出应用）
 python tools\seed_demo.py --clear
 
-# 四个视图各截一张，并打印每屏的视口尺寸、页面内容高度、主题、玻璃面板数、backdrop-filter
+# 六个视图各截一张，并打印每屏的视口尺寸、页面内容高度、主题、玻璃面板数、backdrop-filter
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1
 
 # 验收最小尺寸下的布局：内容区只有约 450px 宽（这一档允许滚动，不许横向溢出）
@@ -370,15 +404,26 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -RequireNoScroll
 # 不会切 naive-ui 的主题；要验收真正的深色外观得把库里的 theme 改成 dark。
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Dark
 
-# 截图前做一次脚本化交互（点开归档确认框 / 切到本月），用来验证浮层文字与区间切换
+# 截图前做一次脚本化交互（按文案找按钮，不依赖类名）：
+#   plans  -> 点开归档确认框（验证浮层里的文字对比度）
+#   records-> 切到「本月」（验证区间切换真的重新取数）
+#   settings-> 连点两下提醒间隔的加号（验证"最近的整十"步进，且连点会累加）
+#   timer  -> 打开计划选择器再点「新建计划」（验证内联表单）
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views plans -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views records -Act
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views settings -Act
 ```
 
 产物在 `screenshots/`（已 gitignore）。`ui_probe.mjs` 靠导航项上的 `data-view` /
-`data-active` 属性切视图并读状态，所以改动 `NavRail.vue` 时要保留这两个属性；
-区间切换的断言靠柱状图根节点上的 `data-points` 与区间标题上的 `:data-period`
-（后者必须绑值——写成无值的 `data-period` 时 `dataset.period` 是空串，断言不到东西）。
+`data-active` 属性切视图并读状态，所以改动 `NavRail.vue` 时要保留这两个属性。
+几处断言各自依赖的钩子：
+
+| 钩子 | 位置 | 守的是什么 |
+|---|---|---|
+| `data-points` | `BarChart` 根节点 | 区间切换后柱子根数真的变了 |
+| `:data-period` | 记录页区间标题 | 标题跟着变（**必须绑值**，无值属性的 `dataset` 是空串） |
+| `data-stepper-value` | `StepNumber` 的 input | 步进规则与连点累加 |
+| `data-view` / `data-active` | `NavRail` 的导航项 | 能点到、且真的切过去了 |
 
 **页面内滚动要单独量**：文档级 `overflowY` 永远是 false，因为滚动发生在 `.content`
 这个嵌套容器里。探针因此额外报 `.content` 的 `scrollHeight`/`clientHeight`——

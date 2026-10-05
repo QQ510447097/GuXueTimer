@@ -15,7 +15,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const DEFAULT_VIEWS = ["timer", "records", "plans", "personalize", "settings"];
+const DEFAULT_VIEWS = ["timer", "records", "plans", "achievements", "personalize", "settings"];
 
 function parseArgs(argv) {
 	const out = { port: 9222, out: "screenshots", views: DEFAULT_VIEWS, width: 0, height: 0, prefix: "", dark: false, dialog: false };
