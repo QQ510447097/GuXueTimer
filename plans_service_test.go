@@ -121,49 +121,209 @@ func TestPlans_UpdateSelfIsNotDuplicate(t *testing.T) {
 
 // ---------------------------------------------------------------- 切换与保护
 
-// 计时进行中不允许切换计划：否则"这段时长算谁的"会在用户没察觉时改变。
-func TestPlans_SetCurrentRefusedWhileRunning(t *testing.T) {
+// 计时中切换计划：先把这段会话结算掉（记在原来那个计划上），再切过去。
+//
+// 早先的契约是"计时中拒绝切换"（ErrPlanRunning）。改成自动结算是个有意的行为变更，
+// 所以这条用例是重写的，不是新加的——它守的是"那段时间有没有记对账"。
+func TestPlans_SetCurrentSettlesFirst(t *testing.T) {
 	h := newHarness(t)
 	other := h.mustCreatePlan(t, "英语", planPalette[1])
 
 	if _, err := h.timer.Start(); err != nil {
 		t.Fatalf("Start() 失败: %v", err)
 	}
+	h.clock.Advance(25 * time.Minute)
 
-	if _, err := h.plans.SetCurrent(other); !errors.Is(err, ErrPlanRunning) {
-		t.Errorf("计时中切换计划 error = %v, 期望 ErrPlanRunning", err)
-	}
-	// 切到"自己"不算切换，应当允许（界面可能会重复点）。
-	if _, err := h.plans.SetCurrent(h.defaultPlanID); err != nil {
-		t.Errorf("切到当前计划不该报错: %v", err)
+	out, err := h.plans.SetCurrent(other)
+	if err != nil {
+		t.Fatalf("计时中切换计划失败: %v", err)
 	}
 
-	// 结束之后就能切了。
-	h.clock.Advance(30 * time.Second)
-	if _, err := h.timer.Stop(); err != nil {
-		t.Fatalf("Stop() 失败: %v", err)
+	// 返回值要能告诉界面"刚才顺手做了什么"。
+	if !out.Settled || !out.Saved {
+		t.Errorf("返回值 = %+v, 期望结算且已保存", out)
 	}
-	if _, err := h.plans.SetCurrent(other); err != nil {
-		t.Errorf("结束后切换计划失败: %v", err)
+	if out.SettledSec != 25*60 {
+		t.Errorf("结算秒数 = %d, 期望 %d", out.SettledSec, 25*60)
+	}
+	if out.SettledPlanName != "默认计划" {
+		t.Errorf("结算归属的计划名 = %q, 期望 默认计划", out.SettledPlanName)
+	}
+	if out.Plan.ID != other || out.Settings.CurrentPlanID != other {
+		t.Errorf("切换结果 = %+v, 期望当前计划是 %d", out, other)
+	}
+
+	// 那 25 分钟必须落在**旧**计划名下。
+	day := h.clock.Now().Format(layoutDateKey)
+	summary, err := h.records.DaySummary(day, h.defaultPlanID)
+	if err != nil {
+		t.Fatalf("DaySummary() 失败: %v", err)
+	}
+	if summary.TotalSec != 25*60 {
+		t.Errorf("旧计划当日时长 = %d, 期望 %d", summary.TotalSec, 25*60)
+	}
+	otherSummary, err := h.records.DaySummary(day, other)
+	if err != nil {
+		t.Fatalf("DaySummary() 失败: %v", err)
+	}
+	if otherSummary.TotalSec != 0 {
+		t.Errorf("新计划不该有这段时长, 实际 %d", otherSummary.TotalSec)
+	}
+
+	// 计时器回到空闲，当前计划是新那个。
+	state, err := h.timer.GetState()
+	if err != nil {
+		t.Fatalf("GetState() 失败: %v", err)
+	}
+	if state.State != string(timer.StateIdle) {
+		t.Errorf("切换后计时状态 = %q, 期望 idle", state.State)
 	}
 	if currentOf(h) != other {
 		t.Errorf("当前计划 = %d, 期望 %d", currentOf(h), other)
 	}
 }
 
-func TestPlans_ArchiveCurrentWhileRunningRefused(t *testing.T) {
+// 点的是当前计划：不结算、不切换。否则"点一下当前计划"会顺手把会话停掉，
+// 那是个用户完全没要求的副作用。
+func TestPlans_SetCurrentSamePlanIsNoop(t *testing.T) {
+	h := newHarness(t)
+
+	if _, err := h.timer.Start(); err != nil {
+		t.Fatalf("Start() 失败: %v", err)
+	}
+	h.clock.Advance(10 * time.Minute)
+
+	out, err := h.plans.SetCurrent(h.defaultPlanID)
+	if err != nil {
+		t.Fatalf("SetCurrent(当前计划) 失败: %v", err)
+	}
+	if out.Settled {
+		t.Error("切到当前计划不该结算正在跑的会话")
+	}
+
+	state, err := h.timer.GetState()
+	if err != nil {
+		t.Fatalf("GetState() 失败: %v", err)
+	}
+	if state.State != string(timer.StateRunning) {
+		t.Errorf("计时状态 = %q, 期望仍在 running", state.State)
+	}
+}
+
+// 会话太短（不足 5 秒）时结算不会写记录，但**仍然要切换**——
+// 用户要的是换一科，不是"因为刚才手快点了两下所以不让我换"。
+func TestPlans_SetCurrentSwitchesEvenWhenTooShort(t *testing.T) {
+	h := newHarness(t)
+	other := h.mustCreatePlan(t, "英语", planPalette[1])
+
+	if _, err := h.timer.Start(); err != nil {
+		t.Fatalf("Start() 失败: %v", err)
+	}
+	h.clock.Advance(2 * time.Second)
+
+	out, err := h.plans.SetCurrent(other)
+	if err != nil {
+		t.Fatalf("SetCurrent() 失败: %v", err)
+	}
+	if !out.Settled {
+		t.Error("应当报告结算过")
+	}
+	if out.Saved {
+		t.Error("2 秒不该写进记录")
+	}
+	if currentOf(h) != other {
+		t.Errorf("当前计划 = %d, 期望 %d", currentOf(h), other)
+	}
+}
+
+// 空闲时切换：没有会话可结算，返回值里的 Settled 必须是 false。
+func TestPlans_SetCurrentIdleReportsNoSettle(t *testing.T) {
+	h := newHarness(t)
+	other := h.mustCreatePlan(t, "英语", planPalette[1])
+
+	out, err := h.plans.SetCurrent(other)
+	if err != nil {
+		t.Fatalf("SetCurrent() 失败: %v", err)
+	}
+	if out.Settled || out.Saved || out.SettledSec != 0 {
+		t.Errorf("空闲时不该报告结算: %+v", out)
+	}
+}
+
+// 归档"当前计划"同样先结算：否则那段时长会挂在一个即将被藏起来的计划上。
+func TestPlans_ArchiveCurrentSettlesFirst(t *testing.T) {
 	h := newHarness(t)
 	spare := h.mustCreatePlan(t, "英语", planPalette[1])
 
 	if _, err := h.timer.Start(); err != nil {
 		t.Fatalf("Start() 失败: %v", err)
 	}
-	if _, err := h.plans.SetArchived(h.defaultPlanID, true); !errors.Is(err, ErrPlanRunning) {
-		t.Errorf("计时中归档当前计划 error = %v, 期望 ErrPlanRunning", err)
+	h.clock.Advance(15 * time.Minute)
+
+	if _, err := h.plans.SetArchived(h.defaultPlanID, true); err != nil {
+		t.Fatalf("计时中归档当前计划失败: %v", err)
 	}
+
 	// 归档非当前计划不受影响。
 	if _, err := h.plans.SetArchived(spare, true); err != nil {
-		t.Errorf("计时中归档别的计划失败: %v", err)
+		t.Errorf("归档别的计划失败: %v", err)
+	}
+
+	// 那 15 分钟要记在归档前所属的计划上。
+	day := h.clock.Now().Format(layoutDateKey)
+	summary, err := h.records.DaySummary(day, h.defaultPlanID)
+	if err != nil {
+		t.Fatalf("DaySummary() 失败: %v", err)
+	}
+	if summary.TotalSec != 15*60 {
+		t.Errorf("归档前所属计划的当日时长 = %d, 期望 %d", summary.TotalSec, 15*60)
+	}
+}
+
+// 删除"正在计时的当前计划"要提前拒绝，而且**不做任何状态改变**。
+//
+// 这一条与"顺手结算"相反，是故意的：删除的前提是"这个计划没有记录"，而结算恰好
+// 会创建一条记录，先结算再删必然删不掉——还会平白停掉用户的计时器。
+func TestPlans_DeleteCurrentWhileRunningRefused(t *testing.T) {
+	h := newHarness(t)
+	other := h.mustCreatePlan(t, "英语", planPalette[1])
+	if _, err := h.plans.SetCurrent(other); err != nil {
+		t.Fatalf("SetCurrent() 失败: %v", err)
+	}
+
+	if _, err := h.timer.Start(); err != nil {
+		t.Fatalf("Start() 失败: %v", err)
+	}
+	h.clock.Advance(12 * time.Minute)
+
+	err := h.plans.Delete(other)
+	if !errors.Is(err, ErrPlanDeleteRunning) {
+		t.Fatalf("error = %v, 期望 ErrPlanDeleteRunning", err)
+	}
+
+	// 失败的操作不该有副作用：计时还在跑，也没有多出记录。
+	state, err2 := h.timer.GetState()
+	if err2 != nil {
+		t.Fatalf("GetState() 失败: %v", err2)
+	}
+	if state.State != string(timer.StateRunning) {
+		t.Errorf("计时状态 = %q, 期望仍在 running（失败的操作不该把计时停掉）", state.State)
+	}
+	day := h.clock.Now().Format(layoutDateKey)
+	summary, err3 := h.records.DaySummary(day, other)
+	if err3 != nil {
+		t.Fatalf("DaySummary() 失败: %v", err3)
+	}
+	if summary.TotalSec != 0 {
+		t.Errorf("不该产生记录, 实际 %d 秒", summary.TotalSec)
+	}
+
+	// 结束之后删除才走到"有记录不能删除"那一关。
+	if _, err := h.timer.Stop(); err != nil {
+		t.Fatalf("Stop() 失败: %v", err)
+	}
+	if err := h.plans.Delete(other); err == nil {
+		t.Error("结算之后它已经有记录，删除应当被『有记录不能删除』挡住")
 	}
 }
 

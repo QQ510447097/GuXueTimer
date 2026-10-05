@@ -201,6 +201,62 @@ func (b *backend) Settings() settings.Settings {
 	return b.settings
 }
 
+// settleResult 描述一次"顺手结算"的结果。
+type settleResult struct {
+	// Settled 表示确实有一次进行中的会话被结算掉了。
+	Settled bool
+	// Saved 表示那次结算写进了记录（时长过短时不会写）。
+	Saved bool
+	// Sec 是结算下来的秒数。
+	Sec int64
+	// PlanName 是那段时间原来挂在哪个计划上。
+	PlanName string
+}
+
+// settleIfRunning 把正在进行的会话结束并落库，用于"切换计划 / 归档当前计划 /
+// 删除当前计划"这些会让"这段时长算谁的"发生变化的前置动作。
+//
+// 空闲时是空操作（Settled=false），所以调用方不必先判断状态。
+//
+// 失败时返回错误且**状态不变**：调用方必须据此中止后续动作。
+// 宁可这次操作没发生，也不能把用户的一段时间弄丢。
+func (b *backend) settleIfRunning() (settleResult, error) {
+	if !b.timerRunning() {
+		return settleResult{}, nil
+	}
+
+	// 先记下"这段时长属于谁"：Stop 之后状态就回 idle 了，拿不到计划名。
+	planID := b.activePlanIDQuiet()
+	name, _ := b.planLabel(planID)
+
+	out, err := b.timer.Stop()
+	if err != nil {
+		return settleResult{}, err
+	}
+	if out.Saved {
+		// 记录已经变了，界面上的图表与列表要重新拉。
+		b.emitRecordsChanged("switched")
+	}
+	return settleResult{
+		Settled:  true,
+		Saved:    out.Saved,
+		Sec:      out.DurationSec,
+		PlanName: name,
+	}, nil
+}
+
+// activePlanIDQuiet 取当前会话所属的计划 id，取不到时返回 0。
+//
+// 与 activePlanID 的区别是不报错、不回落：结算路径上拿不到计划名不该让结算失败，
+// 而"这段时长算谁的"要用会话**自己记着**的计划（snap.PlanID），
+// 不是设置里那个可能已经变了的当前计划。
+func (b *backend) activePlanIDQuiet() int64 {
+	if id := b.timer.Snapshot().PlanID; id > 0 {
+		return id
+	}
+	return b.currentPlanID()
+}
+
 // updateSettings 先落库、再改内存、最后把新配置推给提醒计数器。
 func (b *backend) updateSettings(next settings.Settings) error {
 	next = next.Normalize()

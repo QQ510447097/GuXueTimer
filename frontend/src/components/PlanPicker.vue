@@ -3,12 +3,16 @@ import { computed, ref } from "vue";
 import { NPopover } from "naive-ui";
 import type { PlanDTO } from "../../bindings/goxuetimer/models";
 import IconDown from "./IconDown.vue";
+import PlanForm from "./PlanForm.vue";
 
 /**
  * 当前计划选择器。
  *
- * 计时中会被禁用（后端也拒绝切换）：这段时长算谁的不能在用户没察觉时改变，
- * 所以禁用原因要写在旁边，而不是只把按钮变灰了事。
+ * 计时中也能切：后端会先把这段会话结算到原来那个计划上，再切过去
+ * （早先是拒绝切换，理由是"这段时长算谁的不能在用户没察觉时改变"；但那个做法
+ * 要求用户先手动结束一次，多两步还容易忘，而现在归属并没有丢）。
+ *
+ * 底部带「＋ 新建计划」内联表单：想记一科新内容时不必先跑去计划页。
  *
  * 用 NPopover 而不是 NDropdown：选项要带计划色点，自定义列表比
  * 往下拉菜单里塞渲染函数更好读，也更好控制玻璃观感。
@@ -17,15 +21,17 @@ const props = withDefaults(
 	defineProps<{
 		plans: PlanDTO[];
 		currentId: number;
-		disabled?: boolean;
-		hint?: string;
 	}>(),
-	{ disabled: false, hint: "" },
+	{},
 );
 
-const emit = defineEmits<{ (e: "select", id: number): void }>();
+const emit = defineEmits<{
+	(e: "select", id: number): void;
+	(e: "created", plan: PlanDTO): void;
+}>();
 
 const open = ref(false);
+const creating = ref(false);
 
 const current = computed(() => props.plans.find((p) => p.id === props.currentId) ?? null);
 const currentName = computed(() => current.value?.name ?? "未选择计划");
@@ -33,7 +39,19 @@ const currentColor = computed(() => current.value?.color ?? "var(--gx-text-3)");
 
 function choose(id: number): void {
 	open.value = false;
+	creating.value = false;
 	if (id !== props.currentId) emit("select", id);
+}
+
+/** 新建成功：关掉弹出层并把新计划交给父组件（它要负责设为当前）。 */
+function onCreated(plan: PlanDTO): void {
+	creating.value = false;
+	open.value = false;
+	emit("created", plan);
+}
+
+function close(): void {
+	creating.value = false;
 }
 </script>
 
@@ -43,16 +61,15 @@ function choose(id: number): void {
 			v-model:show="open"
 			trigger="click"
 			placement="bottom-start"
-			:disabled="disabled || plans.length === 0"
+			:disabled="plans.length === 0 && !creating"
 			:show-arrow="false"
 		>
 			<template #trigger>
 				<button
 					type="button"
 					class="trigger gx-glass-2 gx-pill gx-lift"
-					:class="{ 'is-disabled': disabled }"
-					:disabled="disabled || plans.length === 0"
-					:title="disabled ? hint : '切换当前计划'"
+					:disabled="plans.length === 0 && !creating"
+					title="切换当前计划"
 				>
 					<span class="gx-dot" :style="{ background: currentColor, color: currentColor }"
 						aria-hidden="true"></span>
@@ -62,23 +79,32 @@ function choose(id: number): void {
 			</template>
 
 			<div class="menu">
-				<button
-					v-for="plan in plans"
-					:key="plan.id"
-					type="button"
-					class="item"
-					:class="{ 'is-current': plan.id === currentId }"
-					@click="choose(plan.id)"
-				>
-					<span class="gx-dot" :style="{ background: plan.color, color: plan.color }"
-						aria-hidden="true"></span>
-					<span class="item-name gx-truncate">{{ plan.name }}</span>
-					<span v-if="plan.id === currentId" class="check" aria-hidden="true">✓</span>
-				</button>
+				<template v-if="!creating">
+					<button
+						v-for="plan in plans"
+						:key="plan.id"
+						type="button"
+						class="item"
+						:class="{ 'is-current': plan.id === currentId }"
+						@click="choose(plan.id)"
+					>
+						<span class="gx-dot" :style="{ background: plan.color, color: plan.color }"
+							aria-hidden="true"></span>
+						<span class="item-name gx-truncate">{{ plan.name }}</span>
+						<span v-if="plan.id === currentId" class="check" aria-hidden="true">✓</span>
+					</button>
+
+					<div class="sep" aria-hidden="true"></div>
+					<button type="button" class="item new" @click="creating = true">
+						<span class="plus" aria-hidden="true">＋</span>
+						<span class="item-name">新建计划</span>
+					</button>
+				</template>
+
+				<PlanForm v-else compact cancelable submit-label="创建并设为当前"
+					@created="onCreated" @cancel="close" />
 			</div>
 		</NPopover>
-
-		<span v-if="disabled && hint" class="hint gx-faint">{{ hint }}</span>
 	</div>
 </template>
 
@@ -102,11 +128,6 @@ function choose(id: number): void {
 	cursor: pointer;
 }
 
-.trigger.is-disabled {
-	cursor: not-allowed;
-	opacity: 0.62;
-}
-
 .name {
 	font-weight: 600;
 	min-width: 0;
@@ -117,17 +138,12 @@ function choose(id: number): void {
 	flex: 0 0 auto;
 }
 
-.hint {
-	font-size: 12px;
-	white-space: nowrap;
-}
-
 .menu {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 	min-width: 168px;
-	max-width: 240px;
+	max-width: 260px;
 	padding: 4px;
 }
 
@@ -165,5 +181,27 @@ function choose(id: number): void {
 .check {
 	flex: 0 0 auto;
 	color: var(--gx-accent);
+}
+
+.sep {
+	height: 1px;
+	margin: 4px 2px;
+	background: var(--gx-line);
+}
+
+/* 「＋ 新建计划」：比普通项淡一点，读起来是"动作"而不是"另一个计划" */
+.item.new {
+	color: var(--gx-text-2);
+}
+
+.item.new:hover {
+	color: var(--gx-accent);
+}
+
+.plus {
+	flex: 0 0 auto;
+	width: 8px;
+	text-align: center;
+	font-size: 13px;
 }
 </style>

@@ -82,6 +82,38 @@ export interface PlanDTO {
 }
 
 /**
+ * PlanSwitchDTO 是"切换当前计划"的结果。
+ * 
+ * 它比单纯的设置多带一份"刚才顺手做了什么"：切换会自动把正在跑的会话结算掉，
+ * 用户需要知道那段时间记到哪去了。没有这份信息，界面只能干巴巴地说一句"已切换"，
+ * 而用户眼看着计时器停了、却不知道那 25 分钟去哪了。
+ */
+export interface PlanSwitchDTO {
+    "plan": PlanDTO;
+    "settings": SettingsDTO;
+
+    /**
+     * Settled 表示这次切换顺手结算了一次进行中的会话。
+     */
+    "settled": boolean;
+
+    /**
+     * Saved 表示那次结算确实写进了记录（时长过短时不会写）。
+     */
+    "saved": boolean;
+
+    /**
+     * SettledSec 是结算下来的秒数。
+     */
+    "settledSec": number;
+
+    /**
+     * SettledPlanName 是那段时间原来挂在哪个计划上。
+     */
+    "settledPlanName": string;
+}
+
+/**
  * ReminderEventDTO 是休息提醒事件的载荷。
  */
 export interface ReminderEventDTO {

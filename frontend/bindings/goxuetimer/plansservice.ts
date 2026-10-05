@@ -3,6 +3,12 @@
 
 /**
  * PlansService 管理学习计划。
+ * 
+ * switchMu 让"结算 + 切换"成为一个不可分割的动作。
+ * 
+ * 不加锁也能跑（用户没法同时点两个计划，界面自己也有防重入），但"把一段时间记到
+ * 哪个计划上"这件事值得多一层保证：交错执行时可能出现 A 结算完、B 也结算（空转）、
+ * 两个切换按反序落地，最后当前计划与用户点的不一致。
  * @module
  */
 
@@ -23,6 +29,8 @@ export function Create(name: string, color: string): $CancellablePromise<$models
 
 /**
  * Delete 物理删除。有记录的计划拒绝删除——请改成归档。
+ * 
+ * 正在这个计划上计时的情况提前拒绝，理由见 ErrPlanDeleteRunning。
  */
 export function Delete(id: number): $CancellablePromise<void> {
     return $Call.ByID(2809715478, id);
@@ -53,16 +61,27 @@ export function Reorder(ids: number[] | null): $CancellablePromise<void> {
 
 /**
  * SetArchived 归档 / 恢复。归档只是从选择器里藏起来，历史记录不受影响。
+ * 
+ * 归档"当前计划"时先把进行中的会话结算掉：否则那段时长会挂在一个即将被藏起来的
+ * 计划上，用户再想找到它就得先恢复归档。
  */
 export function SetArchived(id: number, archived: boolean): $CancellablePromise<$models.PlanDTO> {
     return $Call.ByID(2609628921, id, archived);
 }
 
 /**
- * SetCurrent 切换当前计划。计时进行中不允许切换：否则"这段时长算谁的"会在
- * 用户没察觉的时候改变。
+ * SetCurrent 切换当前计划。
+ * 
+ * 计时进行中也允许切换：先把这段会话结算掉（时长算给它原来所属的计划），再换过去。
+ * 
+ * 早先的版本是"计时中拒绝切换"（ErrPlanRunning）。那个做法把"归属清晰"这件事
+ * 交给了用户的记性——他得先想起来手动结束一次、再切、再开始，多两步，还容易忘。
+ * 而现在用户的心智很直接：我想换到另一科，刚才那段时间当然还算在原来那科。
+ * 顺手结算既保住了归属，也少了两步操作。
+ * 
+ * 结算失败时**不切换**：宁可这次切换没发生，也不能把用户的一段时间弄丢。
  */
-export function SetCurrent(id: number): $CancellablePromise<$models.SettingsDTO> {
+export function SetCurrent(id: number): $CancellablePromise<$models.PlanSwitchDTO> {
     return $Call.ByID(1915732888, id);
 }
 

@@ -37,6 +37,8 @@ const editColor = ref("");
 
 /** 当前计划以后端状态为准：它同时被计时页的选择器和托盘菜单改。 */
 const currentPlanId = computed(() => state.value?.planId ?? 0);
+/** 计时是否在进行：归档当前计划会顺手结算、删除当前计划则会被拒，两处都要看它。 */
+const timerRunning = computed(() => (state.value?.state ?? "idle") === "running");
 
 /** 在用的计划 + 已归档的计划排成一列，已归档的那一段前面插一条分隔标题。 */
 const list = computed(() => [...activePlans.value, ...archivedPlans.value]);
@@ -121,14 +123,22 @@ async function setCurrent(plan: PlanDTO): Promise<void> {
 	}
 }
 
+/*
+ * 归档"正在计时的当前计划"会先把这段会话结算掉（记在它自己名下）再归档。
+ * 那是个会停掉计时器的副作用，必须在确认框里说出来——用户点的是"归档"，
+ * 不该顺带被停掉计时还不知情。
+ */
 function archive(plan: PlanDTO): void {
+	const settles = plan.id === currentPlanId.value && timerRunning.value;
 	dialog.warning({
 		title: "归档计划",
-		content: `「${plan.name}」会从计划选择器里隐藏，历史记录与统计都保留。`,
+		content: settles
+			? `「${plan.name}」会从计划选择器里隐藏，历史记录与统计都保留。正在进行的这一段会先结束并保存。`
+			: `「${plan.name}」会从计划选择器里隐藏，历史记录与统计都保留。`,
 		positiveText: "归档",
 		negativeText: "取消",
 		onPositiveClick: () => {
-			void run(() => PlansService.SetArchived(plan.id, true), "已归档");
+			void run(() => PlansService.SetArchived(plan.id, true), "已归档").then(pullState);
 		},
 	});
 }
@@ -137,7 +147,16 @@ function restore(plan: PlanDTO): void {
 	void run(() => PlansService.SetArchived(plan.id, false), `已恢复「${plan.name}」`);
 }
 
+/*
+ * 删除的前提是"这个计划没有任何记录"。正在它上面计时时，后端会直接拒绝
+ * （先结算的话必然多出一条记录，反而删不掉，还平白停了计时）。
+ * 这里把话说在前面，别等用户点了删除才被拒。
+ */
 function remove(plan: PlanDTO): void {
+	if (plan.id === currentPlanId.value && timerRunning.value) {
+		message.warning("正在这个计划上计时，请先结束本次会话或切换到别的计划");
+		return;
+	}
 	dialog.error({
 		title: "删除计划",
 		content: `「${plan.name}」将被永久删除，此操作无法撤销。`,

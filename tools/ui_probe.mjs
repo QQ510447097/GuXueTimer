@@ -15,7 +15,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const DEFAULT_VIEWS = ["timer", "records", "plans", "settings"];
+const DEFAULT_VIEWS = ["timer", "records", "plans", "personalize", "settings"];
 
 function parseArgs(argv) {
 	const out = { port: 9222, out: "screenshots", views: DEFAULT_VIEWS, width: 0, height: 0, prefix: "", dark: false, dialog: false };
@@ -137,6 +137,8 @@ const PROBE = `(() => {
 			: -1,
 		// 图表区间的标题（本周（…）/ 某年某月）。区间切换是否生效，靠它 + barPoints 一起判。
 		periodLabel: document.querySelector('[data-period]')?.dataset.period ?? '',
+		// 提醒间隔步进器的当前值（-1 表示这一屏没有它）。用来断言"43 -> 50 -> 60"。
+		stepper: Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1),
 		backdropFilter: backdrop,
 		panelCount: document.querySelectorAll('.gx-glass').length,
 		themeClass: document.querySelector('.theme-dark') ? 'dark' : 'light',
@@ -164,6 +166,29 @@ const PRE_CAPTURE = {
 		const btn = document.querySelector('[data-range="month"]');
 		if (!btn) return false;
 		btn.click();
+		return true;
+	})()`,
+	// 连点两下提醒间隔的加号：43 -> 50 -> 60。
+	// 连点是有意为之：父组件的 prop 要下一个 tick 才回流，如果步进器按 prop 算，
+	// 第二次点击会从旧值重算，结果停在 50 而不是 60——这条断言就是守这个的。
+	settings: `(() => {
+		const plus = document.querySelector('[data-step="1"]');
+		if (!plus) return false;
+		plus.click();
+		plus.click();
+		return true;
+	})()`,
+	// 打开计划选择器，再点里面的「新建计划」，把内联表单截下来。
+	// 分两步所以要 await：弹出层是异步渲染的，紧接着找按钮会找不到。
+	timer: `(async () => {
+		const trigger = document.querySelector('[title="切换当前计划"]');
+		if (!trigger) return false;
+		trigger.click();
+		await new Promise((r) => setTimeout(r, 250));
+		const item = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('新建计划'));
+		if (!item) return 'no-new-button';
+		item.click();
+		await new Promise((r) => setTimeout(r, 250));
 		return true;
 	})()`,
 };

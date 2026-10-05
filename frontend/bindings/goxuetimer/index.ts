@@ -22,6 +22,7 @@ export type {
     NoticeDTO,
     PersonalizationDTO,
     PlanDTO,
+    PlanSwitchDTO,
     ReminderEventDTO,
     SessionDTO,
     SettingsDTO,

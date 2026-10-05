@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -22,16 +23,49 @@ var (
 	ErrPlanNameTaken = errors.New("已经有一个同名的计划了")
 	// ErrPlanColorInvalid 颜色不在白名单里。
 	ErrPlanColorInvalid = errors.New("这个颜色不在可选范围内")
-	// ErrPlanRunning 计时进行中，不允许改动当前计划。
-	ErrPlanRunning = errors.New("计时进行中，请先结束本次会话")
+	// ErrPlanDeleteRunning 在"删除正在计时的当前计划"时返回。
+	//
+	// 这一条和别的"顺手结算"不一样，是**故意拒绝**的：删除的前提是"这个计划没有任何
+	// 记录"，而结算进行中的会话恰好会创建一条记录——先结算再删，必然删不掉，
+	// 而且用户点击删除的本意也不是"结束这次计时"。它会平白停掉计时器、再报一句
+	// "这个计划下有 1 条记录，不能删除"，两件事都出乎意料。
+	//
+	// 所以这里提前拦下，并且**不做任何状态改变**：计时继续跑，用户自己决定是先结束
+	// 还是先切到别的计划。
+	ErrPlanDeleteRunning = errors.New("正在这个计划上计时，请先结束本次会话或切换到别的计划")
 )
+
+// PlanSwitchDTO 是"切换当前计划"的结果。
+//
+// 它比单纯的设置多带一份"刚才顺手做了什么"：切换会自动把正在跑的会话结算掉，
+// 用户需要知道那段时间记到哪去了。没有这份信息，界面只能干巴巴地说一句"已切换"，
+// 而用户眼看着计时器停了、却不知道那 25 分钟去哪了。
+type PlanSwitchDTO struct {
+	Plan     PlanDTO     `json:"plan"`
+	Settings SettingsDTO `json:"settings"`
+	// Settled 表示这次切换顺手结算了一次进行中的会话。
+	Settled bool `json:"settled"`
+	// Saved 表示那次结算确实写进了记录（时长过短时不会写）。
+	Saved bool `json:"saved"`
+	// SettledSec 是结算下来的秒数。
+	SettledSec int64 `json:"settledSec"`
+	// SettledPlanName 是那段时间原来挂在哪个计划上。
+	SettledPlanName string `json:"settledPlanName"`
+}
 
 // MaxPlanNameLen 是计划名称的长度上限（按字符数，不是字节数）。
 const MaxPlanNameLen = 24
 
 // PlansService 管理学习计划。
+//
+// switchMu 让"结算 + 切换"成为一个不可分割的动作。
+//
+// 不加锁也能跑（用户没法同时点两个计划，界面自己也有防重入），但"把一段时间记到
+// 哪个计划上"这件事值得多一层保证：交错执行时可能出现 A 结算完、B 也结算（空转）、
+// 两个切换按反序落地，最后当前计划与用户点的不一致。
 type PlansService struct {
-	b *backend
+	b        *backend
+	switchMu sync.Mutex
 }
 
 // NewPlansService 构造计划服务。
@@ -120,13 +154,21 @@ func (s *PlansService) Update(id int64, name string, color string) (PlanDTO, err
 }
 
 // SetArchived 归档 / 恢复。归档只是从选择器里藏起来，历史记录不受影响。
+//
+// 归档"当前计划"时先把进行中的会话结算掉：否则那段时长会挂在一个即将被藏起来的
+// 计划上，用户再想找到它就得先恢复归档。
 func (s *PlansService) SetArchived(id int64, archived bool) (PlanDTO, error) {
+	s.switchMu.Lock()
+	defer s.switchMu.Unlock()
+
 	plan, err := s.b.db.GetPlan(id)
 	if err != nil {
 		return PlanDTO{}, err
 	}
-	if archived && plan.ID == s.b.currentPlanID() && s.b.timerRunning() {
-		return PlanDTO{}, ErrPlanRunning
+	if archived && plan.ID == s.b.currentPlanID() {
+		if _, err := s.b.settleIfRunning(); err != nil {
+			return PlanDTO{}, err
+		}
 	}
 	if err := s.b.db.SetPlanArchived(id, archived); err != nil {
 		return PlanDTO{}, err
@@ -140,9 +182,14 @@ func (s *PlansService) SetArchived(id int64, archived bool) (PlanDTO, error) {
 }
 
 // Delete 物理删除。有记录的计划拒绝删除——请改成归档。
+//
+// 正在这个计划上计时的情况提前拒绝，理由见 ErrPlanDeleteRunning。
 func (s *PlansService) Delete(id int64) error {
+	s.switchMu.Lock()
+	defer s.switchMu.Unlock()
+
 	if id == s.b.currentPlanID() && s.b.timerRunning() {
-		return ErrPlanRunning
+		return ErrPlanDeleteRunning
 	}
 	n, err := s.b.db.CountPlanSessions(id)
 	if err != nil {
@@ -162,25 +209,57 @@ func (s *PlansService) Delete(id int64) error {
 	return nil
 }
 
-// SetCurrent 切换当前计划。计时进行中不允许切换：否则"这段时长算谁的"会在
-// 用户没察觉的时候改变。
-func (s *PlansService) SetCurrent(id int64) (SettingsDTO, error) {
+// SetCurrent 切换当前计划。
+//
+// 计时进行中也允许切换：先把这段会话结算掉（时长算给它原来所属的计划），再换过去。
+//
+// 早先的版本是"计时中拒绝切换"（ErrPlanRunning）。那个做法把"归属清晰"这件事
+// 交给了用户的记性——他得先想起来手动结束一次、再切、再开始，多两步，还容易忘。
+// 而现在用户的心智很直接：我想换到另一科，刚才那段时间当然还算在原来那科。
+// 顺手结算既保住了归属，也少了两步操作。
+//
+// 结算失败时**不切换**：宁可这次切换没发生，也不能把用户的一段时间弄丢。
+func (s *PlansService) SetCurrent(id int64) (PlanSwitchDTO, error) {
+	s.switchMu.Lock()
+	defer s.switchMu.Unlock()
+
 	plan, err := s.b.db.GetPlan(id)
 	if err != nil {
-		return SettingsDTO{}, err
+		return PlanSwitchDTO{}, err
 	}
 	if plan.Archived {
-		return SettingsDTO{}, errors.New("这个计划已归档，先恢复再切换")
+		return PlanSwitchDTO{}, errors.New("这个计划已归档，先恢复再切换")
 	}
-	if s.b.timerRunning() && id != s.b.currentPlanID() {
-		return SettingsDTO{}, ErrPlanRunning
+
+	out := PlanSwitchDTO{}
+
+	// 点的是当前计划：什么都不做。这里必须早退——否则"点一下当前计划"
+	// 会顺手把正在跑的会话结算掉，那是个不该发生的副作用。
+	if id != s.b.currentPlanID() {
+		settled, err := s.b.settleIfRunning()
+		if err != nil {
+			return PlanSwitchDTO{}, err
+		}
+		out.Settled = settled.Settled
+		out.Saved = settled.Saved
+		out.SettledSec = settled.Sec
+		out.SettledPlanName = settled.PlanName
+
+		if err := s.b.setCurrentPlan(id); err != nil {
+			return PlanSwitchDTO{}, err
+		}
 	}
-	if err := s.b.setCurrentPlan(id); err != nil {
-		return SettingsDTO{}, err
-	}
+
 	s.b.emitPlansChanged("current")
 	s.b.emitState()
-	return settingsDTOFrom(s.b.Settings()), nil
+
+	planDTO, err := s.planByID(id)
+	if err != nil {
+		return PlanSwitchDTO{}, err
+	}
+	out.Plan = planDTO
+	out.Settings = settingsDTOFrom(s.b.Settings())
+	return out, nil
 }
 
 // Reorder 按传入顺序重写排序。

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { NInputNumber, NSwitch, useMessage } from "naive-ui";
+import { NSwitch, useMessage } from "naive-ui";
 import * as SettingsService from "../../bindings/goxuetimer/settingsservice";
 import GlassPanel from "../components/GlassPanel.vue";
+import StepNumber from "../components/StepNumber.vue";
 import { errText } from "../composables/format";
 import { useSettings } from "../composables/useSettings";
 
@@ -22,8 +23,8 @@ import { useSettings } from "../composables/useSettings";
 const { settings, saving, loadError, saveError, patch } = useSettings();
 const message = useMessage();
 
-/** 数字输入不能每敲一键就提交：它每敲一键都会发 update:value。 */
-const intervalDraft = ref<number | null>(settings.value.breakIntervalMin);
+/** 数字输入不能每敲一键就提交：StepNumber 只在失焦/回车/加减时发 commit。 */
+const intervalDraft = ref<number>(settings.value.breakIntervalMin);
 watch(
 	settings,
 	(next) => {
@@ -33,9 +34,8 @@ watch(
 );
 
 function commitInterval(): void {
-	const value = intervalDraft.value;
-	if (value === null || value === settings.value.breakIntervalMin) return;
-	void patch({ breakIntervalMin: value });
+	if (intervalDraft.value === settings.value.breakIntervalMin) return;
+	void patch({ breakIntervalMin: intervalDraft.value });
 }
 
 /** 开关类设置：动一下就提交，失败已经在 saveError 里。 */
@@ -86,20 +86,16 @@ async function openDataDir(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">提醒间隔</span>
-						<span class="row-hint gx-faint">1 ~ 480 分钟，按已连续学习的时间计算</span>
+						<span class="row-hint gx-faint">
+							1 ~ 480 分钟，按已连续学习的时间计算；加减按最近的整十分钟走
+						</span>
 					</div>
-					<div class="inline">
-						<NInputNumber
-							v-model:value="intervalDraft"
-							class="num"
-							:min="1"
-							:max="480"
-							:disabled="!settings.breakReminderEnabled"
-							@blur="commitInterval"
-							@keyup.enter="commitInterval"
-						/>
-						<span class="unit gx-muted">分钟</span>
-					</div>
+					<StepNumber
+						v-model="intervalDraft"
+						:disabled="!settings.breakReminderEnabled"
+						suffix="分钟"
+						@commit="commitInterval"
+					/>
 				</div>
 			</div>
 		</GlassPanel>
@@ -193,10 +189,6 @@ async function openDataDir(): Promise<void> {
 	align-items: center;
 	gap: 7px;
 	flex: 0 0 auto;
-}
-
-.num {
-	width: 104px;
 }
 
 .unit {

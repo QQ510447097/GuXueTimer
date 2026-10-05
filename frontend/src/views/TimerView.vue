@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useDialog, useMessage } from "naive-ui";
 import * as PlansService from "../../bindings/goxuetimer/plansservice";
 import * as RecordsService from "../../bindings/goxuetimer/recordsservice";
+import type { PlanDTO } from "../../bindings/goxuetimer/models";
 import ClockDisplay from "../components/ClockDisplay.vue";
 import GlassPanel from "../components/GlassPanel.vue";
 import IconDiscard from "../components/IconDiscard.vue";
@@ -178,19 +179,47 @@ function onDiscard(): void {
 	});
 }
 
+/*
+ * 切换计划。
+ *
+ * 计时中也能切：后端会把这段会话结算掉再切（见 PlansService.SetCurrent）。
+ * 返回值告诉我们"刚才顺手记了多少、记到哪去了"——必须说出来，
+ * 否则用户眼看着计时器停了，却不知道那 25 分钟去哪了。
+ *
+ * 原来的版本在计时中直接 return（因为后端会拒绝）。现在反过来：
+ * 那不是非法操作，而是一个会自动收尾的正常操作。
+ */
 async function onSelectPlan(id: number): Promise<void> {
-	if (switching.value || !isIdle.value) return;
+	if (switching.value) return;
 	switching.value = true;
 	try {
-		await PlansService.SetCurrent(id);
+		const out = await PlansService.SetCurrent(id);
 		await refreshPlans();
 		// SetCurrent 会改后端设置里的当前计划，权威状态要重新拉一次。
 		await pullState();
+
+		const to = `已切到「${out.plan?.name ?? "新计划"}」`;
+		if (!out.settled) {
+			message.success(to);
+		} else if (out.saved) {
+			message.success(
+				`已把 ${formatDurationCN(out.settledSec)} 记到「${out.settledPlanName}」，${to}`,
+			);
+		} else {
+			// 时长不足 5 秒：没写记录，但切换照常完成了——这两件事要分开说清楚。
+			message.warning(`时长不足 5 秒，未记录；${to}`);
+		}
 	} catch (err) {
 		message.error(errText(err));
 	} finally {
 		switching.value = false;
 	}
+}
+
+/** 在选择器里新建计划：直接设为当前，省掉用户再点一次。 */
+async function onPlanCreated(plan: PlanDTO): Promise<void> {
+	await refreshPlans();
+	await onSelectPlan(plan.id);
 }
 </script>
 
@@ -204,9 +233,8 @@ async function onSelectPlan(id: number): Promise<void> {
 				<PlanPicker
 					:plans="activePlans"
 					:current-id="currentPlanId"
-					:disabled="!isIdle || switching"
-					:hint="isIdle ? '正在切换…' : '计时中不能切换计划'"
 					@select="onSelectPlan"
+					@created="onPlanCreated"
 				/>
 			</div>
 
