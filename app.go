@@ -293,8 +293,14 @@ func (b *backend) syncWindowBackground(s settings.Settings) {
 
 // refreshCaptionTheme 是平台无关的转发：真正的 Win32 调用在 caption_windows.go 里，
 // 非 Windows 平台是空实现，这样 app.go 不必带任何平台相关的 import。
+//
+// 两件事一起做，都是"原生外壳"的一部分：
+//   - ensureBackdrop：把毛玻璃换成能正常绘制标题栏的实现（幂等，第二次调用无害）
+//   - syncCaptionTheme：让标题栏明暗跟随应用主题
 func (b *backend) refreshCaptionTheme(s settings.Settings) {
-	syncCaptionTheme(b.hwnd.Load(), s.Theme)
+	hwnd := b.hwnd.Load()
+	ensureBackdrop(hwnd)
+	syncCaptionTheme(hwnd, s.Theme)
 }
 
 // noteFrontendConnected 记录前端第一次成功调用后端。

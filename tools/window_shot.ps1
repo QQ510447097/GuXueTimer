@@ -23,16 +23,26 @@
     只截顶部标题栏那一条（高度由 -CaptionHeight 决定，默认 40px）。
     放大后看文字细节时用它。
 
+.PARAMETER Activate
+    抓图前先把窗口切到前台。标题栏的绘制与"是不是活动窗口"有关——
+    实测过：非活动窗口抓出来是干净的，而用户看到的是活动窗口的样子。
+
+.PARAMETER NoFullContent
+    不带 PW_RENDERFULLCONTENT。用来对照：这个标志走的是"让窗口自己重画"，
+    可能与屏幕上 DWM 合成出来的画面不同。
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools\window_shot.ps1 -Out screenshots\window.png
-    powershell -ExecutionPolicy Bypass -File tools\window_shot.ps1 -CaptionOnly -Out screenshots\caption.png
+    powershell -ExecutionPolicy Bypass -File tools\window_shot.ps1 -Activate -CaptionOnly -Out screenshots\caption.png
 #>
 [CmdletBinding()]
 param(
     [string]$ProcessName = 'GuXueTimer',
     [string]$Out = 'screenshots\window.png',
     [switch]$CaptionOnly,
-    [int]$CaptionHeight = 40
+    [int]$CaptionHeight = 40,
+    [switch]$Activate,
+    [switch]$NoFullContent
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +60,12 @@ public static class WindowShot
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
@@ -69,6 +85,15 @@ if (-not $proc) {
 }
 
 $hwnd = $proc.MainWindowHandle
+
+if ($Activate) {
+    [void][WindowShot]::SetForegroundWindow($hwnd)
+    Start-Sleep -Milliseconds 600
+    $fg = [WindowShot]::GetForegroundWindow()
+    $isFg = ($fg -eq $hwnd)
+    Write-Host "已切到前台: $isFg （前台句柄 $fg）"
+}
+
 $rect = New-Object WindowShot+RECT
 if (-not [WindowShot]::GetWindowRect($hwnd, [ref]$rect)) {
     Write-Host "GetWindowRect 失败" -ForegroundColor Red
@@ -83,8 +108,9 @@ $bmp = New-Object System.Drawing.Bitmap -ArgumentList @($width, $height)
 $gfx = [System.Drawing.Graphics]::FromImage($bmp)
 $hdc = $gfx.GetHdc()
 $ok = $false
+$flags = if ($NoFullContent) { 0 } else { [WindowShot]::PW_RENDERFULLCONTENT }
 try {
-    $ok = [WindowShot]::PrintWindow($hwnd, $hdc, [WindowShot]::PW_RENDERFULLCONTENT)
+    $ok = [WindowShot]::PrintWindow($hwnd, $hdc, $flags)
 } finally {
     $gfx.ReleaseHdc($hdc)
     $gfx.Dispose()

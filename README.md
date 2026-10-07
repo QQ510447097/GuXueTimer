@@ -123,26 +123,59 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 这个效果是这套外观的一半，做成可选项只会让人在"要不要开"上耗神。实现上有三处必须一起对：
 
 1. **窗口**：`main.go` 里的 `translucentWindow` 常量 → `BackgroundTypeTranslucent` +
-   `Windows.BackdropType = Acrylic`。Windows 上 Wails 会走
-   `SetWindowCompositionAttribute`（Win10 回退路径）或 DWM 的 Mica/Acrylic（Win11 22621+）。
-   前者是未公开 API，个别显卡/驱动上可能出现缩放卡顿或整窗发黑——真遇到了，
-   把那个常量改成 `false` 重新构建即可回到不透明窗口（应用内的玻璃观感不受影响）。
+   `Windows.BackdropType = Acrylic`。
 2. **背景层**：`body` 必须 `background: transparent`，`--gx-bg-gradient` 也必须带 alpha
    （浅色 0.86~0.90、深色 0.80~0.84）。少做任何一件，透进来的桌面都会被整块盖掉，
    毛玻璃等于白开——这个坑踩过。
-3. **标题栏**：Win10 上 blur-behind 会让标题栏**底色**变半透明，而**文字**样式由窗口主题
-   决定。本机系统外观是深色、应用是浅色，两者一错位，标题文字就按深色画出来：
-   白字 + 一块不透明的深色底，压在浅色标题栏上——就是用户报的"文字被深色矩形块包围"。
-   `caption_windows.go` 里的 `syncCaptionTheme` 把窗口主题钉到**应用**主题上解决它。
-   两个实现细节值得记住：
-   - 句柄的取得时机是 `events.Common.WindowRuntimeReady`，**不是** `ApplicationStarted`——
-     后者触发时窗口还没创建（日志顺序是"应用已启动"早于 WebView2 初始化），句柄是 0。
-   - 那几个 Win32 调用**不要**套 `application.InvokeSync`：它内部是
-     `dispatchOnMainThread` + `wg.Wait()`，而本函数也会从主线程上调用，会直接自锁
-     （实测表现：日志停在 WebView2 初始化那一行，窗口再也不出现）。
+3. **毛玻璃的实现方式**：见下一节。这一条是标题栏那个 bug 的真正原因。
 
-验证方式：`tools/window_shot.ps1` 抓含标题栏的整窗 + `-CaptionOnly` 放大三倍，
-两版图对比就能看出深色块有没有消失。
+#### 标题栏文字压着深色方块（踩了两次才对）
+
+现象：窗口**活动**时，标题文字底下垫着一块不透明的深色矩形。窗口**非活动**时一切正常。
+
+Win10 上 Wails 的 `BackgroundTypeTranslucent` 走的是
+`SetWindowCompositionAttribute(WCA_ACCENT_POLICY, ACCENT_ENABLE_BLURBEHIND)`
+（`AccentFlags` 与 `GradientColor` 都是 0）。它让**整个窗口**——包括非客户区的标题栏——
+底色变成模糊的半透明；而标题文字仍按"毛玻璃上的文字"绘制，于是字底下多出一块不透明底。
+
+`caption_windows.go` 里的 `ensureBackdrop` 把 accent 换成
+`ACCENT_ENABLE_ACRYLICBLURBEHIND`（亚克力），标题栏就恢复成正常的不透明绘制，
+而客户区照样透出并模糊桌面。`backdropMode` 是唯一的开关，想退回原状态就改它。
+
+**第一次修错了，值得记下来**：当时的判断是"窗口主题与应用主题错位"，
+于是去调 `SetTheme` / `SetWindowTheme`——那个改动留在了
+`syncCaptionTheme` 里（它管的是另一件事：让标题栏明暗跟随应用主题），
+但**并不能**消掉方块。错误结论来自取证方式：
+
+- 我用 `PrintWindow` 抓标题栏，抓的时候窗口在**后台**——而后台窗口根本不画那块底，
+  于是"修复前后"两张图看起来一张有一张没有，我就以为修好了。
+- 真实情况是：**必须把窗口切到前台再抓**才看得见这个问题。
+  `window_shot.ps1` 因此加了 `-Activate`（抓图前先 `SetForegroundWindow`）。
+- 真正的定位手段是 `tools/accent_probe.ps1`：它从外部进程改目标窗口的 accent 状态
+  （这个调用任何进程都能对别的窗口做），于是不用重新构建就能逐个候选做对照：
+
+  | AccentState | 标题栏 |
+  | --- | --- |
+  | 0 关掉 | 方块消失，但窗口完全不透明，桌面透不进来 |
+  | 3 blur-behind | **方块出现**（Wails 的默认状态） |
+  | 4 亚克力 | 方块消失，客户区仍透出并模糊桌面 ← 选它 |
+  | 5 hostbackdrop | 本机（19045）与 4 渲染完全一致 |
+
+  着色值实测对客户区没有可见影响（用 `0xCCFF0000` 强红试过，界面照旧），
+  因为应用自己的背景层本来就不透明，所以传 0。
+
+两个实现细节值得记住（与上面那个 bug 无关，但都会让窗口直接消失）：
+
+- 句柄的取得时机是窗口就绪事件，**不是** `ApplicationStarted`——后者触发时窗口还没创建
+  （日志顺序是"应用已启动"早于 WebView2 初始化），句柄是 0。而且这个调用必须晚于 Wails
+  自己设 backdrop，否则会被它覆盖。
+- 那几个 Win32 调用**不要**套 `application.InvokeSync`：它内部是
+  `dispatchOnMainThread` + `wg.Wait()`，而这些调用会从主线程上的事件处理器里发出，
+  会直接自锁（实测表现：日志停在 WebView2 初始化那一行，窗口再也不出现）。
+
+验证方式：`tools/window_shot.ps1 -Activate -CaptionOnly`（**必须带 `-Activate`**），
+放大三倍看标题栏。改完记得也验一遍"关窗隐藏到托盘再唤回"——合成状态在那条路径上会被重置，
+所以 `ensureBackdrop` 挂在多个窗口事件上重复应用（幂等）。
 
 ## 需求环境
 
@@ -250,6 +283,7 @@ tools/
   shoot.ps1          启动应用并用 CDP 截图 + 体检界面布局
   ui_probe.mjs       shoot.ps1 调用的 CDP 客户端（零依赖）
   window_shot.ps1    抓含标题栏的整窗（PrintWindow）——CDP 抓不到非客户区
+  accent_probe.ps1   从外部改目标窗口的 accent 状态，用来定位标题栏渲染问题
   tray_icons.ps1     逐个读通知区域里的图标提示文字，数出属于本应用的有几个（只读）
   tray_lifecycle_test.ps1  托盘图标生命周期验证：反复隐藏/显示、退出、多实例、强杀对照
 ```
@@ -431,9 +465,19 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views settings -Act
 
 `tools/window_shot.ps1` 补上 CDP 看不到的那一块：用 `PrintWindow(..., PW_RENDERFULLCONTENT)`
 让**窗口自己**把内容画到给定的内存 DC 上，所以不需要窗口可见、也不受遮挡影响，
-标题栏和边框都在图里。毛玻璃开启后标题栏文字是否正常，就靠它取证。
+标题栏和边框都在图里。
 
-三个实测踩到的坑，留给下次：
+**但抓标题栏时必须加 `-Activate`**：窗口在后台时标题栏走的是另一种（扁平）绘制路径，
+问题根本不会出现。这一条踩得最惨——我先前的"修复前后对比"两张图都是后台窗口，
+于是得出了"已经修好"的错误结论，实际上用户的画面一点没变。现在 `-Activate`
+会先 `SetForegroundWindow` 再抓。同理，涉及标题栏的改动要顺带验一遍
+"关窗隐藏到托盘再唤回"。
+
+`tools/accent_probe.ps1` 是配套的定位工具：`SetWindowCompositionAttribute` 任何进程
+都能对别的窗口调用，所以可以**不重新构建**就逐个换 accent 状态、每换一次抓一张图对照。
+标题栏那个深色方块就是这么定位的（见"窗口毛玻璃"一节）。
+
+四个实测踩到的坑，留给下次：
 
 - `backdrop-filter` **只写标准属性**，不要自己再补一份 `-webkit-`。压缩器会按目标浏览器
   自动加前缀，但手写双份会被它当成重复声明——实测结果是标准属性被删掉、只剩前缀版。

@@ -228,12 +228,25 @@ func main() {
 	// （实测日志顺序是"应用已启动"早于 WebView2 初始化），句柄是 0。
 	// WindowRuntimeReady 是窗口与 webview 都就绪之后，句柄一定有效。
 	//
-	// 取到句柄后按应用主题对齐标题栏：Win10 的 blur-behind 让标题栏底色变半透明，
-	// 而文字样式由窗口主题决定，不跟着应用主题走就会出现"白字压着深色方块"。
-	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
-		b.hwnd.Store(windowHandle(window))
+	// 取到句柄后把"原生外壳"弄对：毛玻璃换成亚克力（Wails 默认的 blur-behind 会让
+	// 活动窗口的标题文字压着一块深色底），标题栏明暗跟随应用主题。
+	//
+	// 后面几个事件是补挂的：合成状态在"隐藏到托盘再唤回"这类路径上可能被重置，
+	// 重新应用一次是幂等的，代价可以忽略。
+	onChromeReady := func(*application.WindowEvent) {
+		if hwnd := windowHandle(window); hwnd != 0 {
+			b.hwnd.Store(hwnd)
+		}
 		b.syncWindowBackground(b.Settings())
-	})
+	}
+	for _, ev := range []events.WindowEventType{
+		events.Common.WindowRuntimeReady,
+		events.Common.WindowShow,
+		events.Common.WindowRestore,
+		events.Common.WindowUnMinimise,
+	} {
+		window.OnWindowEvent(ev, onChromeReady)
+	}
 
 	if err := app.Run(); err != nil {
 		// Run 出错时托盘可能已经注册过了，先摘掉再退出：fatal 走的是 os.Exit，

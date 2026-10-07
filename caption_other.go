@@ -8,5 +8,8 @@ import "github.com/wailsapp/wails/v3/pkg/application"
 // blur-behind 与窗口主题叠加出来的问题。其它平台留空实现，保证能编译。
 func syncCaptionTheme(_ uintptr, _ string) {}
 
+// ensureBackdrop 同上：毛玻璃的实现方式是 Windows 独有的。
+func ensureBackdrop(_ uintptr) {}
+
 // windowHandle 在非 Windows 平台上没有对应的原生句柄概念。
 func windowHandle(_ *application.WebviewWindow) uintptr { return 0 }
