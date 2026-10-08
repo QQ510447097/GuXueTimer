@@ -57,10 +57,13 @@ function close(): void {
 
 <template>
 	<div class="picker">
+		<!-- bottom-end 而不是 bottom-start：选择器在计划行的最右端，
+		     从左边对齐会向右展开、顶出窗口（560 宽时"取消"按钮会被切掉，
+		     探针也报横向溢出）。右对齐则向左展开，始终留在窗口内。 -->
 		<NPopover
 			v-model:show="open"
 			trigger="click"
-			placement="bottom-start"
+			placement="bottom-end"
 			:disabled="plans.length === 0 && !creating"
 			:show-arrow="false"
 		>

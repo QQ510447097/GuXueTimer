@@ -112,6 +112,10 @@ async function onRemove(id: number): Promise<void> {
 						{{ item.label }}
 					</button>
 				</div>
+				<!-- 区间标题并进这一行，不再单独占一格：
+				     :data-period 要把值绑上，写成无值的 data-period 时 dataset.period
+				     是空串，tools/ui_probe.mjs 就断言不到区间切换了 -->
+				<span class="period gx-faint" :data-period="periodLabel">{{ periodLabel }}</span>
 				<div class="total">
 					<span class="total-value gx-tabular">{{ formatDurationCN(rangeTotalSec) }}</span>
 					<span class="total-hint gx-faint">{{ rangeCount }} 次</span>
@@ -136,13 +140,7 @@ async function onRemove(id: number): Promise<void> {
 			</div>
 		</GlassPanel>
 
-		<GlassPanel padding="14px 16px">
-			<div class="section-head">
-				<span class="gx-section-title">每日时长</span>
-				<!-- :data-period 要把值绑上：写成无值的 data-period 时 dataset.period 是空串，
-				     tools/ui_probe.mjs 就断言不到区间标题了 -->
-				<span class="gx-faint" :data-period="periodLabel">{{ periodLabel }}</span>
-			</div>
+		<GlassPanel padding="12px 15px">
 			<BarChart :points="chartPoints" />
 
 			<div class="divider"></div>
@@ -157,7 +155,7 @@ async function onRemove(id: number): Promise<void> {
 			/>
 		</GlassPanel>
 
-		<GlassPanel padding="14px 16px">
+		<GlassPanel padding="12px 15px">
 			<div class="day-head">
 				<div class="day-titles">
 					<span class="day-title">{{ dayLabel(selectedDate) }}</span>
@@ -236,6 +234,12 @@ async function onRemove(id: number): Promise<void> {
 	cursor: pointer;
 }
 
+/* 区间标题跟着胶囊走，不再单独占一行：省下的高度直接换成"整页不用滚" */
+.period {
+	font-size: 11.5px;
+	white-space: nowrap;
+}
+
 .total {
 	display: flex;
 	flex-direction: column;
@@ -268,18 +272,9 @@ async function onRemove(id: number): Promise<void> {
 	max-width: 132px;
 }
 
-.section-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 10px;
-	margin-bottom: 10px;
-	font-size: 11.5px;
-}
-
 .divider {
 	height: 1px;
-	margin: 12px 0 10px;
+	margin: 10px 0 8px;
 	background: var(--gx-line);
 }
 

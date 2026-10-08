@@ -5,27 +5,26 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"goxuetimer/internal/store"
 )
 
 // 存储键。已发布后不要改名，否则旧设置会读不出来。
 //
-// 曾经有过一个 windowTranslucent（窗口毛玻璃开关），现在它恒为开、界面里也没有开关，
-// 所以键与字段都删掉了。旧库里残留的那个键不会有人再读，留着无害。
+// 两个已经死掉、但键仍留在库里的历史项（不会有人再读，留着无害）：
+//   - windowTranslucent：窗口毛玻璃曾经是个开关，现在恒为开、界面里没有开关。
+//   - customQuote / quoteIndex：语录功能已整条删除（见 CardModeNone 的注释）。
 const (
 	KeyBreakReminderEnabled = "breakReminderEnabled"
 	KeyBreakIntervalMin     = "breakIntervalMin"
 	KeyMinimizeToTray       = "minimizeToTray"
 	KeyTheme                = "theme"
 	KeyCurrentPlanID        = "currentPlanId"
-	KeyCardMode             = "cardMode"
-	KeyCustomQuote          = "customQuote"
-	KeyQuoteIndex           = "quoteIndex"
-	KeyBackgroundImage      = "backgroundImage"
+	// KeyCardMode 的名字里是"card"（卡片），值是 none | image。
+	// 历史上还有过 quote（语录卡片），已废弃。键名保持不变。
+	KeyCardMode        = "cardMode"
+	KeyBackgroundImage = "backgroundImage"
 )
 
 // 主题取值。
@@ -46,23 +45,21 @@ const (
 	DefaultBreakIntervalMin = 45
 )
 
-// 计时页装饰卡片的模式。
+// 计时页最下方那块区域显示什么（"卡片模式"）。
+//
+// 历史上还有过一个 CardModeQuote（语录卡片），已经删掉了：语录、自定义文字、
+// "换一句"整套功能一并移除。老库里的 "quote" 会在 Normalize 里回落到 none。
+//
+// 存储键仍然是 cardMode，不改名——已发布过的键改名等于把老数据丢掉，
+// 而且这样老库里选过 image 的人不会丢选择（见 KeyCardMode 的注释）。
 const (
-	CardModeQuote = "quote"
+	// CardModeNone 留空：那块区域什么都不放。
+	CardModeNone = "none"
+	// CardModeImage 用户自己选的一张背景图。
 	CardModeImage = "image"
-	// DefaultCardMode 是首次启动的模式。
-	DefaultCardMode = CardModeQuote
-	// QuoteIndexAuto 表示"每日一句"：按日期自动挑一条，每天换。
-	// 用户点过"换一句"之后才会固定成某个序号。
-	//
-	// 用 0 而不是 -1 当哨兵，是为了让**零值即默认**：一个只有部分字段的
-	// Settings{} 经 Normalize 之后应当落到"每日一句"。若用 -1，
-	// 零值 0 会被解释成"第 0 条语录"，同一份结构就有了两种含义。
-	// 这与 CurrentPlanID = 0 表示"未设置"是同一套惯例。
-	QuoteIndexAuto = 0
-	// MaxCustomQuoteRunes 是自定义语录的长度上限（按字符数，不是字节数——
-	// 中文一个字三字节，按字节限会把上限变成 40 个汉字）。
-	MaxCustomQuoteRunes = 120
+	// DefaultCardMode 是首次启动的模式：留空。没有语录可显示，
+	// 也没有图，默认摆一块空面板只会让人以为是加载失败。
+	DefaultCardMode = CardModeNone
 )
 
 // Settings 是全部用户设置。
@@ -77,15 +74,11 @@ type Settings struct {
 	// 与计划本身的属性无关；计划被归档/删除时由 backend 负责纠正。
 	CurrentPlanID int64
 
-	// ---- 计时页的装饰卡片 ----
+	// CardMode 决定计时页最下方那块区域显示什么：none（留空）或 image（背景图）。
 	//
-	// 计时页下方本来就有一块空白（时钟只占屏幕上半部分），放一张可定制的卡片
-	// 比留白好看，也给了这个工具一点"人味"。
-	// CardMode 是 quote 或 image；CustomQuote 为空时用内置的每日一句；
-	// QuoteIndex 为 0 表示每日一句（自动），大于 0 表示固定第 QuoteIndex 条（1 起算）。
-	CardMode    string
-	CustomQuote string
-	QuoteIndex  int
+	// 名字里的"卡片"是历史叫法（原来那里是一张语录卡片）。它仍然是"卡片"的语义，
+	// 所以字段名与存储键都没有跟着值的调整而改名。
+	CardMode string
 	// BackgroundImage 是用户选的背景图文件名（只存文件名，不存路径）。
 	//
 	// 存文件名而不是完整路径有个安全上的原因：这个值会被拼进 URL 交给
@@ -102,7 +95,6 @@ func Defaults() Settings {
 		MinimizeToTray:       true,
 		Theme:                DefaultTheme,
 		CardMode:             DefaultCardMode,
-		QuoteIndex:           QuoteIndexAuto,
 	}
 }
 
@@ -127,35 +119,19 @@ func (s Settings) Normalize() Settings {
 	default:
 		s.Theme = DefaultTheme
 	}
+	// 空串（没指定）与不认识的值都回落到留空；
+	// 老库里的 "quote" 也走这一支——那是被删掉的语录卡片。
 	switch s.CardMode {
-	case CardModeQuote, CardModeImage:
+	case CardModeNone, CardModeImage:
 	default:
 		s.CardMode = DefaultCardMode
 	}
-	// 负数没有意义：收敛到"每日一句"。
-	if s.QuoteIndex < QuoteIndexAuto {
-		s.QuoteIndex = QuoteIndexAuto
-	}
-	s.CustomQuote = truncateRunes(strings.TrimSpace(s.CustomQuote), MaxCustomQuoteRunes)
 	// 背景图只留文件名：任何路径成分都丢掉（见 BackgroundImage 的注释）。
 	s.BackgroundImage = filepath.Base(filepath.Clean(s.BackgroundImage))
 	if s.BackgroundImage == "." || s.BackgroundImage == string(filepath.Separator) {
 		s.BackgroundImage = ""
 	}
 	return s
-}
-
-// truncateRunes 按**字符**截断，不是按字节。中文一个字三字节，
-// 按字节截会把最后一个字劈成半个、存进去就是乱码。
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= max {
-		return s
-	}
-	return string(runes[:max])
 }
 
 // Load 从数据库读取设置。缺失或损坏的键回落到默认值。
@@ -192,14 +168,6 @@ func Load(st *store.DB) (Settings, error) {
 	if v, ok := raw[KeyCardMode]; ok && v != "" {
 		out.CardMode = v
 	}
-	if v, ok := raw[KeyCustomQuote]; ok {
-		out.CustomQuote = v
-	}
-	if v, ok := raw[KeyQuoteIndex]; ok {
-		if n, err := strconv.Atoi(v); err == nil {
-			out.QuoteIndex = n
-		}
-	}
 	if v, ok := raw[KeyBackgroundImage]; ok {
 		out.BackgroundImage = v
 	}
@@ -217,8 +185,6 @@ func (s Settings) Save(st *store.DB) error {
 		KeyTheme:                n.Theme,
 		KeyCurrentPlanID:        strconv.FormatInt(n.CurrentPlanID, 10),
 		KeyCardMode:             n.CardMode,
-		KeyCustomQuote:          n.CustomQuote,
-		KeyQuoteIndex:           strconv.Itoa(n.QuoteIndex),
 		KeyBackgroundImage:      n.BackgroundImage,
 	})
 }
@@ -241,12 +207,9 @@ func (s Settings) Validate() error {
 		return fmt.Errorf("未知的主题取值 %q", s.Theme)
 	}
 	switch s.CardMode {
-	case "", CardModeQuote, CardModeImage:
+	case "", CardModeNone, CardModeImage:
 	default:
 		return fmt.Errorf("未知的卡片模式 %q", s.CardMode)
-	}
-	if utf8.RuneCountInString(s.CustomQuote) > MaxCustomQuoteRunes {
-		return fmt.Errorf("自定义语录最多 %d 个字", MaxCustomQuoteRunes)
 	}
 	return nil
 }

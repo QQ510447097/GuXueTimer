@@ -19,15 +19,16 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 - **成就**：徽章完全由历史记录推导（第一步 / 十小时 / 三日不辍），
   顶部带累计时长、当前与最长连续天数。加新成就就是往定义表里追加一条。
 - **崩溃可恢复**：计时状态每次心跳都落库，异常退出后按规则接回（见"恢复策略"）。
-- **个性化**：主题（跟随系统 / 浅色 / 深色）与计时页下方那张装饰卡片。
-  卡片可以是语录（内置约 40 句古典名句，默认"每日一句"按日期自动换，可换一句、
-  可写自己的话），也可以是用户自己选的图片（支持 PNG/JPEG/GIF，会复制进数据目录）。
+- **个性化**：管"长什么样、计时页上有什么"。主题（跟随系统 / 浅色 / 深色）、
+  计时页最下方那块区域显示什么（留空 / 图片 / 其他组件·未支持），以及休息提醒的
+  开关与间隔。图片支持 PNG/JPEG/GIF，会复制进数据目录。语录功能已删除（见下）。
 - **设置立即生效**：没有"保存"按钮，改一下就落库，失败会就地显示原因。
 - **休眠防线**：系统休眠或合盖过夜不会被算成学习时间。
 - **系统托盘**：提示里带当前计划与今日累计；右键菜单只有 显示主窗口 / 设置 / 退出 三项——托盘是入口，不是控制面板。
 - **关闭即隐藏**：点窗口 × 只把窗口藏进托盘，进程继续跑；托盘「退出」才真正结束。
-- **休息提醒**：默认每连续学习 45 分钟发一次 Windows 通知（可调 1~480 分钟、可关闭），
-  同时弹应用内提示作为兜底。
+- **休息提醒**：默认每连续学习 45 分钟发一次 Windows 通知（可调 1~480 分钟），
+  同时弹应用内提示作为兜底。开关在「个性化」里——**关掉之后计时页上那块整个消失**，
+  通知也不再发。
 - **单实例**：重复启动只会把已有窗口叫回前台，不会出现两个进程抢数据库。
 
 不做的事（有意留白）：番茄钟、手动补录/编辑记录、每日目标、数据导出、开机自启、
@@ -80,25 +81,31 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 （`filter: blur(40px)` 而不是更大），并铺了一层极淡的噪点（内联 SVG 的 `feTurbulence`）
 提供高频细节——面板掠过色斑时才看得出"糊了一层"。
 
-### 计时页下方那张卡片
+### 计时页最下方那块区域
 
-计时页的内容（时钟 + 三条统计 + 提醒进度）只占窗口高度的三分之二左右，下面原本是一大片
-空白。现在那里放一张可定制的卡片，**并且由它吸收剩余高度**：窗口变高卡片就变高，
-语录垂直居中，图铺满，不会在底部留下一条空白。
+那块区域显示什么，由一个下拉菜单决定（在「个性化」页里），三个选项：
+
+| 选项 | 行为 |
+|---|---|
+| `留空`（默认） | 什么都没有。下面就是**故意留白**——窗口 800 高、计时内容约 490，差的那一截不会被谁填掉 |
+| `图片` | 用户自己选的图，**由它吸收剩余高度**：窗口变高图就变高（`object-fit: cover`），没选图时是虚线占位 + 「去挑一张」 |
+| `其他组件` | 占位：`NSelect` 的 `disabled` 选项，点不动也选不中，只把位置占住 |
+
+设置里的值是 `cardMode`：`none` | `image`。**键名没跟着改**——已发布过的键改名等于把老数据
+丢掉，而这个键的值集虽然变了（历史上还有过 `quote`），`image` 仍然有效，老用户的选择不该丢。
+老库里的 `quote` 会在 `settings.Normalize()` 里回落到 `none`。
 
 这里有两个反直觉的点，都踩过：
 
-- **探针测不出这种空白**。"一屏放得下"的判据是 `scrollHeight > clientHeight`，
+- **探针测不出"留白"**。"一屏放得下"的判据是 `scrollHeight > clientHeight`，
   而 `scrollHeight` 永远不会小于 `clientHeight`——内容比容器矮时两者相等。
-  所以"内容没填满"只能靠看截图，别指望自动检查。
-- **别用百分比高度让子元素长高**。先写的是给卡片 `height: 100%`，结果是外层面板长高了、
-  里面的卡片没跟着长（中间任一环高度是 auto，百分比就失效）。改成让面板本身成为
-  flex 列、卡片 `flex: 1 1 auto`，高度关系交给 flex 布局算，才稳定。
+  所以"内容没填满/留白是否合适"只能靠看截图，别指望自动检查。
+- **别用百分比高度让子元素长高**。先写的是给图片 `height: 100%`，结果是外层面板长高了、
+  里面的图没跟着长（中间任一环高度是 auto，百分比就失效）。改成让面板本身成为
+  flex 列、图片 `flex: 1 1 auto`，高度关系交给 flex 布局算，才稳定。
 
-语录在 `frontend/src/data/quotes.ts`，加句子直接往数组里追一条即可（文件头写了规则）。
-卡片形态与自定义文字存在设置里（`cardMode` / `customQuote` / `quoteIndex`），
-其中 `quoteIndex = 0` 表示"每日一句"（按日期哈希挑），大于 0 表示固定第几条（1 起算）。
-用 0 而不是 -1 当哨兵，是为了让**零值即默认**——同一份结构不该有两种"空"的含义。
+（语录功能已经整条删除：`frontend/src/data/quotes.ts` 与 `InspirationCard.vue` 都没了，
+设置里的 `customQuote` / `quoteIndex` 也不再读——键留在老库里，与 `windowTranslucent` 一样。）
 
 ### 用户选的背景图是怎么送出去的
 
@@ -359,7 +366,7 @@ powershell -ExecutionPolicy Bypass -File tools\smoke_test.ps1
 
 # 看界面长什么样（截图 + 布局体检，产物在 screenshots\）
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1
-powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 560x680 -Dark
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 460x620 -Dark
 ```
 
 覆盖的关键场景：
@@ -428,8 +435,8 @@ python tools\seed_demo.py --clear
 # 六个视图各截一张，并打印每屏的视口尺寸、页面内容高度、主题、玻璃面板数、backdrop-filter
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1
 
-# 验收最小尺寸下的布局：内容区只有约 450px 宽（这一档允许滚动，不许横向溢出）
-powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 540x720
+# 验收最小尺寸下的布局：内容区只有约 350px 宽（这一档允许滚动，不许横向溢出）
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 460x620
 
 # 验收"一屏放得下"：任何一屏的内容高度超过内容区就算失败
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -RequireNoScroll
@@ -439,13 +446,15 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -RequireNoScroll
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Dark
 
 # 截图前做一次脚本化交互（按文案找按钮，不依赖类名）：
-#   plans  -> 点开归档确认框（验证浮层里的文字对比度）
-#   records-> 切到「本月」（验证区间切换真的重新取数）
-#   settings-> 连点两下提醒间隔的加号（验证"最近的整十"步进，且连点会累加）
-#   timer  -> 打开计划选择器再点「新建计划」（验证内联表单）
+#   plans      -> 点开归档确认框（验证浮层里的文字对比度）
+#   records    -> 切到「本月」（验证区间切换真的重新取数）
+#   settings   -> 连点两下提醒间隔的加号（验证"最近的整十"步进，且连点会累加）
+#   timer      -> 打开计划选择器再点「新建计划」（验证内联表单，也顺带验证窄窗口下弹出层不顶出边界）
+#   personalize-> 先点禁用的「其他组件」（值必须不变），再选「图片」（值必须变成 image）
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views plans -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views records -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views settings -Act
+powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views personalize,timer -Act
 ```
 
 产物在 `screenshots/`（已 gitignore）。`ui_probe.mjs` 靠导航项上的 `data-view` /
@@ -457,6 +466,7 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views settings -Act
 | `data-points` | `BarChart` 根节点 | 区间切换后柱子根数真的变了 |
 | `:data-period` | 记录页区间标题 | 标题跟着变（**必须绑值**，无值属性的 `dataset` 是空串） |
 | `data-stepper-value` | `StepNumber` 的 input | 步进规则与连点累加 |
+| `data-bottom` | 计时页根节点 / 个性化页的下拉 | 底部区域模式（none / image），也用来验证禁用项选不中 |
 | `data-view` / `data-active` | `NavRail` 的导航项 | 能点到、且真的切过去了 |
 
 **页面内滚动要单独量**：文档级 `overflowY` 永远是 false，因为滚动发生在 `.content`

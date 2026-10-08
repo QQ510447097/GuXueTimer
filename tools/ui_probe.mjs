@@ -139,6 +139,9 @@ const PROBE = `(() => {
 		periodLabel: document.querySelector('[data-period]')?.dataset.period ?? '',
 		// 提醒间隔步进器的当前值（-1 表示这一屏没有它）。用来断言"43 -> 50 -> 60"。
 		stepper: Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1),
+		// 计时页最下方那块区域显示什么：none | image。
+		// 个性化页的下拉与计时页的根节点都挂了这个属性，同一个选择器两边都能读。
+		bottom: document.querySelector('[data-bottom]')?.dataset.bottom ?? '',
 		backdropFilter: backdrop,
 		panelCount: document.querySelectorAll('.gx-glass').length,
 		themeClass: document.querySelector('.theme-dark') ? 'dark' : 'light',
@@ -168,16 +171,8 @@ const PRE_CAPTURE = {
 		btn.click();
 		return true;
 	})()`,
-	// 连点两下提醒间隔的加号：43 -> 50 -> 60。
-	// 连点是有意为之：父组件的 prop 要下一个 tick 才回流，如果步进器按 prop 算，
-	// 第二次点击会从旧值重算，结果停在 50 而不是 60——这条断言就是守这个的。
-	settings: `(() => {
-		const plus = document.querySelector('[data-step="1"]');
-		if (!plus) return false;
-		plus.click();
-		plus.click();
-		return true;
-	})()`,
+	// settings 的动作没了：步进器（原来在这页）已随休息提醒搬到个性化页，
+	// 连点加号那条断言合并进了 personalize 的动作里。
 	// 打开计划选择器，再点里面的「新建计划」，把内联表单截下来。
 	// 分两步所以要 await：弹出层是异步渲染的，紧接着找按钮会找不到。
 	timer: `(async () => {
@@ -190,6 +185,61 @@ const PRE_CAPTURE = {
 		item.click();
 		await new Promise((r) => setTimeout(r, 250));
 		return true;
+	})()`,
+	/*
+	 * 个性化页：一次验三件事，并返回可读结果。
+	 *
+	 *   1. 点「其他组件」（禁用占位）→ 底部区域的值**不能**变
+	 *   2. 再选「图片」→ 值要变成 image
+	 *   3. 连点两下提醒间隔的加号 → 步进要累加（60 -> 70 -> 80）
+	 *
+	 * 第 3 条原来挂在设置页，休息提醒搬到个性化之后跟着挪过来。连点是有意为之：
+	 * 父组件的 prop 要下一个 tick 才回流，若步进器按 prop 算，第二次点击会从旧值
+	 * 重算、只前进一格——探针读到的就不是 80。
+	 *
+	 * 类名不去猜：选项用 [class*="select-option"] 模糊匹配（naive-ui 的选项类名
+	 * 在各版本间变过），触发元素用组件上挂的 data-bottom-select 找。
+	 * 找不到就如实返回 no-select / no-option，不静默通过。
+	 */
+	personalize: `(async () => {
+		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+		const read = () => document.querySelector('[data-bottom]')?.dataset.bottom ?? '';
+		const root = document.querySelector('[data-bottom-select]');
+		if (!root) return 'no-select';
+		const trigger = root.querySelector('[class*="selection"]') ?? root;
+		const openAndFind = async (text) => {
+			trigger.click();
+			await wait(300);
+			const opts = [...document.querySelectorAll('[class*="select-option"]')];
+			if (opts.length === 0) return { opts, hit: null };
+			return { opts, hit: opts.find((o) => o.textContent.includes(text)) ?? null };
+		};
+
+		const before = read();
+
+		const first = await openAndFind('其他组件');
+		if (!first.hit) return first.opts.length ? 'no-other-option' : 'no-option';
+		const disabledFlag = first.hit.className.includes('disabled') ? 'disabled' : 'not-disabled';
+		first.hit.click();
+		await wait(300);
+		const afterDisabled = read();
+
+		const second = await openAndFind('图片');
+		if (!second.hit) return 'no-image-option';
+		second.hit.click();
+		await wait(400);
+		const afterImage = read();
+
+		const stepperBefore = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
+		const plus = document.querySelector('[data-step="1"]');
+		if (plus) {
+			plus.click();
+			plus.click();
+			await wait(300);
+		}
+		const stepperAfter = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
+
+		return \`\${disabledFlag}: \${before}->\${afterDisabled}; 图片: \${afterImage}; 步进: \${stepperBefore}->\${stepperAfter}\`;
 	})()`,
 };
 

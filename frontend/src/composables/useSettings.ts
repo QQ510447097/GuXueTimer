@@ -21,10 +21,8 @@ const defaults = (): SettingsDTO => ({
 	minimizeToTray: true,
 	theme: "light",
 	currentPlanId: 0,
-	cardMode: "quote",
-	customQuote: "",
-	// 0 = 每日一句（自动）。后端也是这个语义，见 settings.QuoteIndexAuto。
-	quoteIndex: 0,
+	// 计时页最下方那块区域：留空。后端 internal/settings 的 Defaults() 同此。
+	cardMode: "none",
 });
 
 const settings = ref<SettingsDTO>(defaults());

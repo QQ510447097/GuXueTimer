@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref } from "vue";
 import { NSwitch, useMessage } from "naive-ui";
 import * as SettingsService from "../../bindings/goxuetimer/settingsservice";
 import GlassPanel from "../components/GlassPanel.vue";
-import StepNumber from "../components/StepNumber.vue";
 import { errText } from "../composables/format";
 import { useSettings } from "../composables/useSettings";
 
@@ -13,30 +12,15 @@ import { useSettings } from "../composables/useSettings";
  * 没有保存按钮：改一下就立即生效。
  *
  * 早先的版本是一份本地草稿 + 一个"保存"按钮，理由是"改错了不可撤销"。但实测下来
- * 这个理由站不住：这里的每一项都是所见即所得的显示偏好（提醒开关、间隔、托盘行为），
+ * 这个理由站不住：这里的每一项都是所见即所得的偏好（托盘行为、数据目录），
  * 看着不合适再改回来就是了，反倒是"改完忘了点保存、以为已经生效"更容易真的踩到。
- * 现在唯一需要"提交时机"的是数字输入框——它每敲一个键都会发 update:value，
- * 所以打字期间只改本地值，失焦或回车才提交（见 commitInterval）。
  *
- * 外观（主题）搬去了「个性化」页，那是它更该在的地方。
+ * 主题搬去了「个性化」，休息提醒（开关与间隔）也搬去了那里——它决定计时页上
+ * 是否出现提醒模块，与"长什么样、页面上有什么"是同一类事情。留下的是
+ * 窗口行为 / 数据 / 关于。
  */
 const { settings, saving, loadError, saveError, patch } = useSettings();
 const message = useMessage();
-
-/** 数字输入不能每敲一键就提交：StepNumber 只在失焦/回车/加减时发 commit。 */
-const intervalDraft = ref<number>(settings.value.breakIntervalMin);
-watch(
-	settings,
-	(next) => {
-		intervalDraft.value = next.breakIntervalMin;
-	},
-	{ immediate: true },
-);
-
-function commitInterval(): void {
-	if (intervalDraft.value === settings.value.breakIntervalMin) return;
-	void patch({ breakIntervalMin: intervalDraft.value });
-}
 
 /** 开关类设置：动一下就提交，失败已经在 saveError 里。 */
 function commit(partial: Parameters<typeof patch>[0]): void {
@@ -70,36 +54,6 @@ async function openDataDir(): Promise<void> {
 
 <template>
 	<section class="settings-view gx-col">
-		<GlassPanel padding="16px 18px">
-			<p class="gx-section-title">休息提醒</p>
-			<div class="rows">
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">开启休息提醒</span>
-						<span class="row-hint gx-faint">连续学习到设定间隔时提醒你起来活动一下</span>
-					</div>
-					<NSwitch
-						:value="settings.breakReminderEnabled"
-						@update:value="(value: boolean) => commit({ breakReminderEnabled: value })"
-					/>
-				</div>
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">提醒间隔</span>
-						<span class="row-hint gx-faint">
-							1 ~ 480 分钟，按已连续学习的时间计算；加减按最近的整十分钟走
-						</span>
-					</div>
-					<StepNumber
-						v-model="intervalDraft"
-						:disabled="!settings.breakReminderEnabled"
-						suffix="分钟"
-						@commit="commitInterval"
-					/>
-				</div>
-			</div>
-		</GlassPanel>
-
 		<GlassPanel padding="16px 18px">
 			<p class="gx-section-title">窗口行为</p>
 			<div class="rows">
@@ -182,17 +136,6 @@ async function openDataDir(): Promise<void> {
 
 .row-hint {
 	font-size: 11.5px;
-}
-
-.inline {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	flex: 0 0 auto;
-}
-
-.unit {
-	font-size: 12.5px;
 }
 
 .path {

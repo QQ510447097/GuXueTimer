@@ -213,19 +213,22 @@ function pick(key: string): void {
 /*
  * 格子刻意**不用** aspect-ratio: 1。
  *
- * 面板内容区有约 490px 宽，7 列均分后每格约 67px，正方形格子会让一个月的日历高达
- * 500px 以上，把下面的"当日明细"整段挤出屏幕。改成定高之后，一个月只占约 220px，
- * 而且这个高度放得下日期数字——光靠颜色只能看出深浅，看不出是哪一天。
+ * 正方形格子会让一个月的日历高达 500px 以上，把下面的"当日明细"整段挤出屏幕。
+ * 改成定高之后一个月只占约 190px，而且这个高度放得下日期数字——光靠颜色只能
+ * 看出深浅，看不出是哪一天。
+ *
+ * 26px 是配合窗口尺寸压出来的（原来 30px）：记录页是窗口高度的约束来源，
+ * 六行格子省下的 24px 直接换成"整页不用滚"。
  */
 .cell {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	height: 30px;
+	height: 26px;
 	min-width: 0;
 	padding: 0;
 	border: none;
-	border-radius: 8px;
+	border-radius: 7px;
 	cursor: pointer;
 	transition: transform var(--gx-dur) var(--gx-ease), box-shadow var(--gx-dur) var(--gx-ease);
 }

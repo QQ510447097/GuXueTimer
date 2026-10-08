@@ -10,17 +10,14 @@ import IconDiscard from "../components/IconDiscard.vue";
 import IconPause from "../components/IconPause.vue";
 import IconPlay from "../components/IconPlay.vue";
 import IconStop from "../components/IconStop.vue";
-import InspirationCard from "../components/InspirationCard.vue";
 import PlanPicker from "../components/PlanPicker.vue";
 import StatTile from "../components/StatTile.vue";
-import { quotes, pickQuote, type Quote } from "../data/quotes";
 import {
 	errText,
 	formatClock,
 	formatCountdownCN,
 	formatDurationCN,
 	formatTodayLabel,
-	todayKey,
 } from "../composables/format";
 import { useNav } from "../composables/useNav";
 import { usePersonalization } from "../composables/usePersonalization";
@@ -39,40 +36,27 @@ import {
 
 const { state, now, busy, lastError, elapsedSec, todayTotalSec, breakSec } = useTimer();
 const { activePlans, nameOf, refresh: refreshPlans } = usePlans();
-const { settings, patch } = useSettings();
+const { settings } = useSettings();
 const { imageUrl, load: loadBackground } = usePersonalization();
 const { selectView } = useNav();
 const dialog = useDialog();
 const message = useMessage();
 
 /*
- * 装饰卡片。
+ * 最下方那块区域。
  *
- * 它是"计时页下方那块空白"的填充物，所以取数据时一律不阻塞计时：语录是纯前端的，
- * 背景图地址来自后端一次轻量调用。
+ * 显示什么完全由个性化页决定：留空（默认）就什么都不放，图片就铺一张封面。
+ * 这段原来是一个独立组件（里面分语录与图片两支），语录删掉之后只剩一个使用方，
+ * 就并回这里了——将来做「其他组件」时再拆出真正的组件，那时它才有多个实现可切。
  */
-const today = todayKey();
-const cardMode = computed(() => (settings.value.cardMode === "image" ? "image" : "quote"));
-const activeQuote = computed<Quote>(() => {
-	const custom = settings.value.customQuote.trim();
-	if (custom) return { text: custom, source: "" };
-	return pickQuote(today, settings.value.quoteIndex);
-});
+const cardMode = computed(() => (settings.value.cardMode === "image" ? "image" : "none"));
+const showImage = computed(() => cardMode.value === "image" && imageUrl.value !== "");
 
 onMounted(() => {
 	void loadBackground();
 });
 
-/** 换一句：把"每日一句"变成固定的某一条，每次往后挪一条。 */
-function shuffleQuote(): void {
-	const current = activeQuote.value;
-	const index = quotes.findIndex((q) => q.text === current.text);
-	// 找不到（说明当前用的是自定义文字）就从第一条开始。
-	const next = index < 0 ? 1 : ((index + 1) % quotes.length) + 1;
-	void patch({ customQuote: "", quoteIndex: next });
-}
-
-/** 图片模式下没有图时的入口：切到个性化页去挑一张。 */
+/** 图片模式下还没选图时的入口：切到个性化页去挑一张。 */
 function goPersonalize(): void {
 	selectView("personalize");
 }
@@ -224,7 +208,8 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 </script>
 
 <template>
-	<section class="timer-view gx-col">
+	<!-- data-bottom 给 tools/ui_probe.mjs 断言"底部区域显示什么"用 -->
+	<section class="timer-view gx-col" :data-bottom="cardMode">
 		<GlassPanel padding="14px 16px 18px">
 			<!-- 计划选择器并进主面板：它和时钟是同一件事的两半，单独包一层玻璃只会多一个盒子 -->
 			<div class="plan-row">
@@ -300,9 +285,11 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 			</div>
 		</GlassPanel>
 
-		<GlassPanel padding="12px 16px">
-			<p v-if="reminderOff" class="reminder-off gx-muted">休息提醒已关闭</p>
-			<div v-else class="reminder">
+		<!-- 休息提醒：关掉之后这一块整个不出现（在个性化页里开关）。
+		     判据用后端状态（关闭提醒时 breakIntervalSec 为 0）而不是本地设置，
+		     这样首帧不会闪一下。 -->
+		<GlassPanel v-if="!reminderOff" padding="12px 16px">
+			<div class="reminder">
 				<div class="reminder-head">
 					<span>距下次休息提醒还有 {{ formatCountdownCN(breakRemainSec) }}</span>
 					<span class="gx-faint gx-tabular">间隔 {{ breakIntervalMin }} 分钟</span>
@@ -313,56 +300,84 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 			</div>
 		</GlassPanel>
 
-		<!-- 装饰卡片：填上时钟面板下方的那块空白。
-		     它不参与计时，所以放在最下面——需要看数据时视线不用越过它。
-		     这个面板会吸收剩余高度（见 .card-panel），窗口高时卡片就高，
-		     不会在底部留下一大片空白。 -->
-		<GlassPanel class="card-panel" padding="14px 16px">
-			<InspirationCard
-				:mode="cardMode"
-				:quote="activeQuote"
-				:image-url="imageUrl"
-				:show-shuffle="cardMode === 'quote'"
-				empty-hint="还没有选背景图，去「个性化」挑一张"
-				@shuffle="shuffleQuote"
-				@pick="goPersonalize"
-			/>
+		<!-- 最下方那块区域：显示什么由个性化页决定。
+		     「留空」时这里连面板都没有，`min-height: 100%` 让下面自然留白。
+		     选「图片」时面板吸收剩余高度（见 .card-panel），图铺满。 -->
+		<GlassPanel v-if="cardMode === 'image'" class="card-panel" padding="14px 16px">
+			<img v-if="showImage" class="photo" :src="imageUrl" alt="背景图" />
+			<div v-else class="card-empty">
+				<span class="hint gx-muted">还没有选背景图，去「个性化」挑一张</span>
+				<button type="button" class="pick gx-ghost gx-pill gx-lift" @click="goPersonalize">
+					去挑一张
+				</button>
+			</div>
 		</GlassPanel>
 	</section>
 </template>
 
 <style scoped>
 .timer-view {
-	gap: var(--gx-gap);
+	gap: 12px;
 	/*
-	 * 撑满内容区的高度，好让最后一个面板吸收剩余空间。
+	 * 撑满内容区的高度，好让最下面那块（选「图片」时）吸收剩余空间。
 	 *
-	 * 这一条是"计时页下方空空的"那个问题的正面解法：窗口 960 高，而计时内容
-	 * 只占约 630，剩下的 290 全靠装饰卡片长高填掉。不加 min-height 的话，
-	 * 这个 flex 列的高度就是内容高度，flex-grow 没有可分配的剩余空间，卡片不会长。
+	 * 这里**不再是**"填掉下方空白"的意思：个性化里选「留空」时，下面就是故意留白的，
+	 * 没有面板需要长高。留着 min-height 只是为了让图片模式能铺满，且在窗口变高时
+	 * 不会把别的面板挤出去。
 	 *
 	 * 顺带说明：探针的"一屏放得下"检查**测不出**这种空白——scrollHeight 永远不会
-	 * 小于 clientHeight，内容比容器矮时两者相等。所以这个问题得靠眼睛看截图。
+	 * 小于 clientHeight，内容比容器矮时两者相等。所以留白是否合适得靠眼睛看截图。
 	 */
 	min-height: 100%;
 }
 
 /*
- * 装饰卡片吸收剩余高度；窗口矮时缩回内容高度，不会把别的面板挤出去。
+ * 图片面板吸收剩余高度；窗口矮时缩回内容高度（min-height），不会把别的面板挤出去。
  *
- * 这里不用"给卡片写 height: 100%"：那要靠百分比高度逐级解析，中间任何一环
- * 高度是 auto 就会失效（实测就是这么失效的——面板长高了，里面的卡片没跟着长）。
- * 让面板本身变成一个 flex 列、卡片 flex-grow，高度关系由 flex 布局直接算出来。
+ * 这里不用"给图片写 height: 100%"：那要靠百分比高度逐级解析，中间任何一环
+ * 高度是 auto 就会失效（实测就是这么失效的——面板长高了，里面的图没跟着长）。
+ * 让面板本身变成一个 flex 列、图片 flex-grow，高度关系由 flex 布局直接算出来。
  */
 .card-panel {
 	display: flex;
 	flex-direction: column;
 	flex: 1 1 auto;
-	min-height: 116px;
+	min-height: 168px;
+	padding: 0;
+	overflow: hidden;
 }
 
-.card-panel :deep(.inspiration) {
+.photo {
+	display: block;
+	width: 100%;
+	min-height: 168px;
 	flex: 1 1 auto;
+	object-fit: cover;
+}
+
+/* 还没选图时的入口：虚线框表达"这里还能放点东西"，实线会读成一个已经画好的面板 */
+.card-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	flex: 1 1 auto;
+	min-height: 168px;
+	margin: 14px;
+	border-radius: var(--gx-r-md);
+	border: 1px dashed var(--gx-line);
+}
+
+.card-empty .hint {
+	font-size: 12.5px;
+}
+
+.card-empty .pick {
+	padding: 5px 12px;
+	font-size: 12.5px;
+	font-family: inherit;
+	cursor: pointer;
 }
 
 .plan-row {
@@ -453,10 +468,6 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 	align-items: baseline;
 	justify-content: space-between;
 	gap: 10px;
-	font-size: 13px;
-}
-
-.reminder-off {
 	font-size: 13px;
 }
 

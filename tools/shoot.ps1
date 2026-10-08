@@ -17,7 +17,7 @@
 
 .PARAMETER Size
     视口尺寸，形如 680x820。不传就用窗口自身的尺寸。
-    想验证最小尺寸下的布局：-Size 560x680
+    想验证最小尺寸下的布局：-Size 460x620
 
 .PARAMETER Dark
     先切到深色模式再截（通过页面里的主题选择器切，不改数据库）。
@@ -25,7 +25,7 @@
 .EXAMPLE
     go build -tags production -ldflags="-w -s -H windowsgui" -o bin\GuXueTimer.exe .
     powershell -ExecutionPolicy Bypass -File tools\shoot.ps1
-    powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 560x680 -Views timer,records
+    powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 460x620 -Views timer,records
 #>
 [CmdletBinding()]
 param(
@@ -130,6 +130,19 @@ if (-not $ready) {
     exit 1
 }
 
+# 端口起来了，但**不一定是我们启动的那个进程**在服务它。
+#
+# 应用是单实例的：如果还有别的实例活着，我们刚启动的这个会立刻退出、把窗口交给它，
+# 而那个实例可能带着旧的调试端口与旧的前端状态——探针于是连到了"别人的窗口"上，
+# 报出来的 activeView 与你请求的视图对不上（实测踩过一次，查了半天）。
+# 这里直接把这件事变成一条明确的错误。
+if ($proc -and -not (Get-Process -Id $proc.Id -ErrorAction SilentlyContinue)) {
+    Write-Host "我们启动的实例立刻退出了（PID $($proc.Id)）——说明还有别的实例在跑，" -ForegroundColor Red
+    Write-Host "调试端口是它开的，探针会连到那个窗口上。请先完全退出应用再重跑。" -ForegroundColor Red
+    Stop-App
+    exit 1
+}
+
 Write-Host '端口就绪，开始截图与体检...' -ForegroundColor Cyan
 
 $nodeArgs = @($probe, '--port', "$Port", '--out', (Join-Path $root $Out), '--views', $Views)
@@ -160,7 +173,7 @@ Write-Host "`n=== 界面体检 ===" -ForegroundColor Cyan
 
 # 这个脚本同时是一道界面回归检查，不只是"看看图"：
 #   - 每个视图都要能点到（导航项存在、点击后真的切过去了）
-#   - 任何一屏都不许出现横向滚动条（窗口最小 540x720，内容区只有约 450px 宽）
+#   - 任何一屏都不许出现横向滚动条（窗口最小 460x620，内容区只有约 350px 宽）
 #   - 每屏都应当有玻璃面板，否则说明视图没渲染出来
 #   - -RequireNoScroll 时，页面内容不许超出一屏（用来验收"不用滚就能看全"）
 $failures = New-Object System.Collections.Generic.List[string]
@@ -185,6 +198,7 @@ foreach ($v in $report.views) {
     Write-Host "         内容区 $($v.contentClient) 高 / 实际 $($v.contentScroll) 高（$scrollNote）"
     if ($v.barPoints -ge 0) { Write-Host "         柱状图数据点 $($v.barPoints) 根" }
     if ($v.stepper -ge 0) { Write-Host "         提醒间隔步进器当前值 $($v.stepper)" }
+    if ($v.bottom) { Write-Host "         底部区域模式 $($v.bottom)" }
     Write-Host "         主题 $($v.themeClass) / 玻璃面板 $($v.panelCount) 个 / backdrop-filter: $($v.backdropFilter)"
     if ($null -ne $v.acted) { Write-Host "         截图前交互: $($v.acted)" }
     foreach ($p in $problems) {

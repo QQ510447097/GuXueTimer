@@ -155,17 +155,22 @@ func main() {
 	if cfg.Theme == settings.ThemeDark {
 		backdrop = application.NewRGB(10, 18, 32)
 	}
-	// 窗口尺寸是量出来的，不是估的：把设置页与记录页的内容高度量出来之后，
-	// 960 高（内容区约 921）刚好让两页都不用滚。宽度收到 620——
-	// 记录页的月历七列仍有约 67px 一格，够放日期数字。
+	// 窗口尺寸是量出来的，不是估的（用 tools/shoot.ps1 的 -Size 改视口模拟，
+	// 读出每页的真实内容高度）：默认 560×800，内容区约 761。
+	//
+	// 约束来自记录页（唯一要同时放柱状图 + 月历 + 当日明细的页面），
+	// 压缩之后约 730；其余各页都在 700 以内（计时页约 490，选图片时约 634）。
+	// 再矮就会让记录页开始滚动。
+	//
+	// 宽度 560 下月历每格约 60px、柱状图每根约 13px，都还够。
 	windowOpts := application.WebviewWindowOptions{
 		Title:  appDisplayName,
-		Width:  620,
-		Height: 960,
+		Width:  560,
+		Height: 800,
 		// 最小尺寸下页面会滚动，这是应有的行为（内容本来就超出一屏），
-		// 但不许出现横向滚动条。
-		MinWidth:         540,
-		MinHeight:        720,
+		// 但不许出现横向滚动条（480 宽实测已无横向溢出，留一点余量）。
+		MinWidth:         460,
+		MinHeight:        620,
 		BackgroundColour: backdrop,
 		URL:              "/",
 	}

@@ -106,8 +106,9 @@ func (p *PersonalizationService) ClearImage() (PersonalizationDTO, error) {
 
 	next := p.backend.Settings()
 	next.BackgroundImage = ""
+	// 图没了就把模式退回留空：留一块空面板比"留空"更像是加载失败。
 	if next.CardMode == settings.CardModeImage {
-		next.CardMode = settings.CardModeQuote
+		next.CardMode = settings.CardModeNone
 	}
 	if err := p.backend.updateSettings(next); err != nil {
 		return PersonalizationDTO{}, err

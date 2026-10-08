@@ -230,17 +230,11 @@ export interface SettingsDTO {
     "currentPlanId": number;
 
     /**
-     * ---- 计时页的装饰卡片 ----
-     * quote | image
+     * ---- 计时页最下方那块区域 ----
+     * CardMode 是 none（留空）或 image（背景图）。语录卡片已整条删除，
+     * 老库里的 "quote" 会被 Normalize 收敛成 none。
      */
     "cardMode": string;
-    "customQuote": string;
-
-    /**
-     * QuoteIndex 为 0 表示"每日一句"（按日期自动挑），大于 0 表示固定第 index 条（1 起算）。
-     * 用 0 当"自动"，是为了让零值即默认，理由见 settings.QuoteIndexAuto。
-     */
-    "quoteIndex": number;
 }
 
 /**
