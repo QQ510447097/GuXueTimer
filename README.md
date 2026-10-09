@@ -552,8 +552,28 @@ wails3 build         # 便携版 exe：bin/GuXueTimer.exe
 
 exe 的版本信息、产品名与清单来自 `build/config.yml` 的 `info:` 段。改完要跑
 `wails3 task common:update:build-assets` 才会写进 `build/windows/info.json`
-与 `.syso`（下次构建生效）。图标来自 `build/appicon.png`（1024×1024），
-跑 `wails3 task common:generate:icons` 生成 `build/windows/icon.ico`。
+与 `.syso`（下次构建生效）。
+
+### 换图标
+
+图标有**两份**素材，别只换一份（只换前者的话，托盘里还是旧的，看起来像"没换干净"）：
+
+| 用途 | 文件 | 要求 |
+|---|---|---|
+| exe / 任务栏 / Alt-Tab / 窗口左上角 | `build/appicon.png` | 方形 PNG，1024×1024，透明底 |
+| 系统托盘 | `assets/tray.png` | 方形 PNG，**32×32**，透明底；托盘按 16~32px 显示，要粗笔画、强对比 |
+
+`.ico` 不用手写：`wails3 task common:generate:icons` 从 `build/appicon.png` 生成
+`build/windows/icon.ico`（16/32/48/64/128/256 六档）与 `build/darwin/icons.icns`，
+然后 `wails3 build` 才会把它嵌进 exe。当前素材放在
+`assets/lone-snow-timer-icon-transparent-1024.png`，托盘那份是从它缩放出来的
+（`assets/` 下只有 `tray.png` 被 `//go:embed` 进去，源图不会进 exe）。
+
+⚠️ `tools/gen_icons.py` 是**画旧图标**（程序化生成那枚雪花）用的，它会把上面两个文件
+一起覆盖掉。换成自己的素材之后就别再跑它了。
+
+换完图标没生效，先怀疑 Windows 的图标缓存（资源管理器会缓存 exe 的图标）：
+把 exe 换个目录或改个名字看一眼，就能区分是缓存还是没嵌进去。
 
 **版本号有两处，改的时候一起改**：`build/config.yml` 的 `info.version`（进 exe 的
 版本资源）与 `main.go` 的 `appVersion`（界面「关于」里显示的就是它，经
