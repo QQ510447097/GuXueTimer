@@ -181,13 +181,6 @@ export interface PlanSwitchDTO {
 }
 
 /**
- * ReminderEventDTO 是休息提醒事件的载荷。
- */
-export interface ReminderEventDTO {
-    "intervalMin": number;
-}
-
-/**
  * SessionDTO 是一条学习记录。
  */
 export interface SessionDTO {
@@ -213,8 +206,6 @@ export interface SessionDTO {
  * SettingsDTO 是全部用户设置。
  */
 export interface SettingsDTO {
-    "breakReminderEnabled": boolean;
-    "breakIntervalMin": number;
     "minimizeToTray": boolean;
 
     /**
@@ -288,11 +279,4 @@ export interface TimerStateDTO {
     "planId": number;
     "planName": string;
     "planColor": string;
-
-    /**
-     * BreakElapsedSec / BreakIntervalSec 是休息提醒的进度；
-     * BreakIntervalSec 为 0 表示提醒已关闭。
-     */
-    "breakElapsedSec": number;
-    "breakIntervalSec": number;
 }

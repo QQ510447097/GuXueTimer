@@ -254,11 +254,9 @@ func TestSettingsService_PreservesBackgroundImage(t *testing.T) {
 
 	// 界面回传的 DTO 里没有背景图字段（它本来就不该有）。
 	saved, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: true,
-		BreakIntervalMin:     25,
-		MinimizeToTray:       true,
-		Theme:                settings.ThemeDark,
-		CardMode:             settings.CardModeImage,
+		MinimizeToTray: true,
+		Theme:          settings.ThemeDark,
+		CardMode:       settings.CardModeImage,
 	})
 	if err != nil {
 		t.Fatalf("Save() 失败: %v", err)

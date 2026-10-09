@@ -8,16 +8,12 @@ import { errText } from "./format";
 
 export type ThemeChoice = "system" | "light" | "dark";
 
-export const defaultBreakIntervalMin = 45;
-
 // 与后端 internal/settings 的 Defaults() 保持一致。
 // 绑定生成器用 -i 产出的是接口（纯类型），不能 new，所以直接给字面量。
 //
 // 默认浅色而不是跟随系统：软件的主色调是蓝白，第一眼就该是那个样子；
 // 真加载完之后会被后端返回的值覆盖。
 const defaults = (): SettingsDTO => ({
-	breakReminderEnabled: true,
-	breakIntervalMin: defaultBreakIntervalMin,
 	minimizeToTray: true,
 	theme: "light",
 	currentPlanId: 0,

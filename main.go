@@ -19,11 +19,9 @@ import (
 
 // appDisplayName 是给用户看的名字：窗口标题、托盘提示、关于页都用它。
 //
-// 注意它同时会成为 Windows 通知的 AppUserModelId —— Wails 用
-// application.Options.Name 作为 AppID 注册到
-// HKCU\Software\Classes\AppUserModelId\ 下。所以这里是整个项目里唯一一处
-// 中文会进入系统标识的地方；冒烟测试用 "systemToast=true" 断言把关，
-// 一旦那条挂了，就把这里退回成 ASCII 的 "GuXueTimer"，其余中文名不受影响。
+// 它曾经还是 Windows 通知的 AppUserModelId（Wails 用 application.Options.Name
+// 注册到 HKCU\Software\Classes\AppUserModelId\）。休息提醒删除之后这个应用不再
+// 发系统通知，那个注册也就不需要了——名字回到纯粹的"显示用"。
 const appDisplayName = "孤雪凝时"
 
 // appVersion 是界面「关于」里显示的版本号。
@@ -50,7 +48,6 @@ func init() {
 	application.RegisterEvent[ChangedDTO](eventRecordsChange)
 	application.RegisterEvent[ChangedDTO](eventPlansChange)
 	application.RegisterEvent[NavGotoDTO](eventNavGoto)
-	application.RegisterEvent[ReminderEventDTO](eventReminderBreak)
 	application.RegisterEvent[NoticeDTO](eventNotice)
 }
 
@@ -100,9 +97,6 @@ func main() {
 			application.NewService(NewSettingsService(b)),
 			application.NewService(NewPersonalizationService(b)),
 			application.NewService(NewAchievementsService(b)),
-			// 通知服务自己实现了 ServiceStartup/ServiceShutdown：
-			// 注册之后它会在启动时完成 Windows 通知所需的注册。
-			application.NewService(b.notifier),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

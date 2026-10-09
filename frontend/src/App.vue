@@ -6,11 +6,9 @@ import {
 	NDialogProvider,
 	NGlobalStyle,
 	NMessageProvider,
-	NNotificationProvider,
 	useMessage,
-	useNotification,
 } from "naive-ui";
-import type { NoticeDTO, ReminderEventDTO } from "../bindings/goxuetimer/models";
+import type { NoticeDTO } from "../bindings/goxuetimer/models";
 import IconCalendar from "./components/IconCalendar.vue";
 import IconMedal from "./components/IconMedal.vue";
 import IconPlan from "./components/IconPlan.vue";
@@ -32,16 +30,14 @@ import SettingsView from "./views/SettingsView.vue";
 import TimerView from "./views/TimerView.vue";
 
 /**
- * 事件桥必须是 provider 的子组件：useMessage / useNotification 取的是祖先注入，
+ * 事件桥必须是 provider 的子组件：useMessage 取的是祖先注入，
  * 在 App 自己的 setup 里调用会拿不到（provider 就在本组件的模板里）。
  */
 const NoticeBridge = defineComponent({
 	name: "NoticeBridge",
 	setup() {
 		const message = useMessage();
-		const notification = useNotification();
 		let offNotice: (() => void) | null = null;
-		let offReminder: (() => void) | null = null;
 
 		onMounted(() => {
 			offNotice = Events.On("notice", (ev) => {
@@ -50,26 +46,11 @@ const NoticeBridge = defineComponent({
 				if (payload.level === "warning") message.warning(payload.message);
 				else message.info(payload.message);
 			});
-
-			// 后端另外会发 Windows 通知；这里是应用内的兜底提醒。
-			offReminder = Events.On("reminder:break", (ev) => {
-				const payload = ev.data as ReminderEventDTO;
-				const minutes = payload && payload.intervalMin > 0 ? payload.intervalMin : 45;
-				notification.info({
-					title: "该休息了",
-					content: `已连续学习 ${minutes} 分钟，起来活动一下`,
-					duration: 0,
-					keepAliveOnHover: true,
-					closable: true,
-				});
-			});
 		});
 
 		onBeforeUnmount(() => {
 			offNotice?.();
-			offReminder?.();
 			offNotice = null;
-			offReminder = null;
 		});
 
 		return () => null;
@@ -147,30 +128,28 @@ onMounted(() => {
 		<NGlobalStyle />
 		<NMessageProvider placement="top">
 			<NDialogProvider>
-				<NNotificationProvider placement="bottom-right" :max="3">
-					<NoticeBridge />
+				<NoticeBridge />
 
-					<!-- 背景层：渐变 + 三处色斑 + 极淡噪点。
-					     玻璃面板的 backdrop-filter 就靠它才有东西可模糊：纯渐变是低频信号，
-					     模糊了也看不出来，噪点提供了高频细节。 -->
-					<div class="gx-backdrop" aria-hidden="true">
-						<span class="blob blob-1"></span>
-						<span class="blob blob-2"></span>
-						<span class="blob blob-3"></span>
-						<span class="blob blob-4"></span>
-						<span class="gx-grain"></span>
-					</div>
+				<!-- 背景层：渐变 + 三处色斑 + 极淡噪点。
+				     玻璃面板的 backdrop-filter 就靠它才有东西可模糊：纯渐变是低频信号，
+				     模糊了也看不出来，噪点提供了高频细节。 -->
+				<div class="gx-backdrop" aria-hidden="true">
+					<span class="blob blob-1"></span>
+					<span class="blob blob-2"></span>
+					<span class="blob blob-3"></span>
+					<span class="blob blob-4"></span>
+					<span class="gx-grain"></span>
+				</div>
 
-					<OnboardingView v-if="needsOnboarding" />
+				<OnboardingView v-if="needsOnboarding" />
 
-					<div v-else class="shell">
-						<NavRail :items="navItems" :active="active" :brand-title="'孤雪凝时'"
-							@select="selectView" />
-						<main class="content gx-scroll">
-							<component :is="currentView" />
-						</main>
-					</div>
-				</NNotificationProvider>
+				<div v-else class="shell">
+					<NavRail :items="navItems" :active="active" :brand-title="'孤雪凝时'"
+						@select="selectView" />
+					<main class="content gx-scroll">
+						<component :is="currentView" />
+					</main>
+				</div>
 			</NDialogProvider>
 		</NMessageProvider>
 	</NConfigProvider>

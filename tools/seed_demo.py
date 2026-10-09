@@ -132,8 +132,6 @@ def seed(conn: sqlite3.Connection, days: int) -> dict:
     # （比如冒烟测试灌进去的 theme=dark），截出来的图和"默认外观"对不上。
     upsert("theme", "light")
     upsert("windowTranslucent", "false")
-    upsert("breakReminderEnabled", "true")
-    upsert("breakIntervalMin", "45")
     upsert("minimizeToTray", "true")
 
     conn.execute("UPDATE timer_state SET state = 'idle', started_at = '', "

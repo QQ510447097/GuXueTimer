@@ -3,7 +3,6 @@ package settings
 import (
 	"path/filepath"
 	"testing"
-	"time"
 
 	"goxuetimer/internal/store"
 )
@@ -26,19 +25,14 @@ func TestLoad_EmptyDBReturnsDefaults(t *testing.T) {
 	if got != Defaults() {
 		t.Errorf("Load(空库) = %+v, 期望 %+v", got, Defaults())
 	}
-	if got.Interval() != time.Duration(DefaultBreakIntervalMin)*time.Minute {
-		t.Errorf("Interval() = %v", got.Interval())
-	}
 }
 
 func TestSaveLoad_RoundTrip(t *testing.T) {
 	db := newTestDB(t)
 
 	want := Settings{
-		BreakReminderEnabled: false,
-		BreakIntervalMin:     25,
-		MinimizeToTray:       false,
-		Theme:                ThemeDark,
+		MinimizeToTray: false,
+		Theme:          ThemeDark,
 		// 卡片字段不能留零值：Save 会先 Normalize，CardMode 的空串会变成默认的
 		// none，所以读回来的值里它一定不是空的。想让这条断言成立，
 		// 期望值就必须和"存进去之后真正会变成什么"一致。
@@ -62,10 +56,10 @@ func TestLoad_CorruptValuesFallBackToDefaults(t *testing.T) {
 	db := newTestDB(t)
 
 	if err := db.SaveSettings(map[string]string{
-		KeyBreakReminderEnabled: "不是布尔值",
-		KeyBreakIntervalMin:     "0",
-		KeyMinimizeToTray:       "yes-please",
-		KeyTheme:                "赛博朋克",
+		KeyMinimizeToTray: "yes-please",
+		KeyTheme:          "赛博朋克",
+		KeyCardMode:       "video",
+		KeyCurrentPlanID:  "不是数字",
 	}); err != nil {
 		t.Fatalf("SaveSettings() 失败: %v", err)
 	}
@@ -79,18 +73,29 @@ func TestLoad_CorruptValuesFallBackToDefaults(t *testing.T) {
 	}
 }
 
-func TestLoad_IntervalOutOfRangeClamped(t *testing.T) {
+// 老库里那些已经死掉的键（休息提醒、语录、毛玻璃开关）不该影响加载。
+func TestLoad_DeadKeysAreIgnored(t *testing.T) {
 	db := newTestDB(t)
 
-	if err := db.SaveSettings(map[string]string{KeyBreakIntervalMin: "9999"}); err != nil {
+	if err := db.SaveSettings(map[string]string{
+		"breakReminderEnabled": "true",
+		"breakIntervalMin":     "25",
+		"windowTranslucent":    "true",
+		"customQuote":          "把今天过完就行",
+		"quoteIndex":           "23",
+		KeyTheme:               ThemeDark,
+	}); err != nil {
 		t.Fatalf("SaveSettings() 失败: %v", err)
 	}
+
 	got, err := Load(db)
 	if err != nil {
 		t.Fatalf("Load() 失败: %v", err)
 	}
-	if got.BreakIntervalMin != DefaultBreakIntervalMin {
-		t.Errorf("BreakIntervalMin = %d, 期望回落为 %d", got.BreakIntervalMin, DefaultBreakIntervalMin)
+	want := Defaults()
+	want.Theme = ThemeDark
+	if got != want {
+		t.Errorf("Load(带死键的库) = %+v, 期望 %+v", got, want)
 	}
 }
 
@@ -101,21 +106,18 @@ func TestValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{"默认值合法", Defaults(), false},
-		{"下界", Settings{BreakIntervalMin: MinBreakIntervalMin, Theme: ThemeSystem}, false},
-		{"上界", Settings{BreakIntervalMin: MaxBreakIntervalMin, Theme: ThemeLight}, false},
-		{"低于下界", Settings{BreakIntervalMin: MinBreakIntervalMin - 1, Theme: ThemeSystem}, true},
-		{"高于上界", Settings{BreakIntervalMin: MaxBreakIntervalMin + 1, Theme: ThemeSystem}, true},
-		{"未知主题", Settings{BreakIntervalMin: 25, Theme: "rainbow"}, true},
+		{"未知主题", Settings{Theme: "rainbow"}, true},
+		{"跟随系统合法", Settings{Theme: ThemeSystem}, false},
 		// 空串 = "没指定"，要放行：界面只带部分字段是正常情况，
 		// 让一个不相关的字段把整次保存搞失败是更糟的失败方式。
-		{"只带部分字段", Settings{BreakIntervalMin: 25}, false},
-		{"未知卡片模式", Settings{BreakIntervalMin: 25, CardMode: "video"}, true},
-		{"卡片模式为空算未指定", Settings{BreakIntervalMin: 25, CardMode: ""}, false},
-		{"留空合法", Settings{BreakIntervalMin: 25, CardMode: CardModeNone}, false},
-		{"图片合法", Settings{BreakIntervalMin: 25, CardMode: CardModeImage}, false},
+		{"只带部分字段", Settings{MinimizeToTray: true}, false},
+		{"未知卡片模式", Settings{CardMode: "video"}, true},
+		{"卡片模式为空算未指定", Settings{CardMode: ""}, false},
+		{"留空合法", Settings{CardMode: CardModeNone}, false},
+		{"图片合法", Settings{CardMode: CardModeImage}, false},
 		// 老的语录取值已经废弃：Validate 眼里它是"不认识的值"，
 		// 但 Normalize 会把它收敛成留空，所以正常路径不会走到这个错误。
-		{"老的语录取值会被拦下", Settings{BreakIntervalMin: 25, CardMode: "quote"}, true},
+		{"老的语录取值会被拦下", Settings{CardMode: "quote"}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -134,18 +136,18 @@ func TestValidate(t *testing.T) {
 func TestSave_NormalizesBeforePersisting(t *testing.T) {
 	db := newTestDB(t)
 
-	if err := (Settings{BreakIntervalMin: -5, Theme: "rainbow"}).Save(db); err != nil {
+	if err := (Settings{Theme: "rainbow", CardMode: "video"}).Save(db); err != nil {
 		t.Fatalf("Save() 失败: %v", err)
 	}
 	raw, err := db.LoadSettings()
 	if err != nil {
 		t.Fatalf("LoadSettings() 失败: %v", err)
 	}
-	if raw[KeyBreakIntervalMin] != "45" {
-		t.Errorf("落库间隔 = %q, 期望 \"45\"", raw[KeyBreakIntervalMin])
-	}
 	if raw[KeyTheme] != DefaultTheme {
 		t.Errorf("落库主题 = %q, 期望 %q", raw[KeyTheme], DefaultTheme)
+	}
+	if raw[KeyCardMode] != DefaultCardMode {
+		t.Errorf("落库卡片模式 = %q, 期望 %q", raw[KeyCardMode], DefaultCardMode)
 	}
 }
 
@@ -218,10 +220,9 @@ func TestCardFields_RoundTrip(t *testing.T) {
 	db := newTestDB(t)
 
 	in := Settings{
-		BreakIntervalMin: DefaultBreakIntervalMin,
-		Theme:            ThemeDark,
-		CardMode:         CardModeImage,
-		BackgroundImage:  "background.png",
+		Theme:           ThemeDark,
+		CardMode:        CardModeImage,
+		BackgroundImage: "background.png",
 	}
 	if err := in.Save(db); err != nil {
 		t.Fatalf("Save() 失败: %v", err)
@@ -277,8 +278,7 @@ func TestLoad_LegacyDBWithoutCardKeys(t *testing.T) {
 	db := newTestDB(t)
 
 	if err := db.SaveSettings(map[string]string{
-		KeyBreakIntervalMin: "30",
-		KeyTheme:            ThemeDark,
+		KeyTheme: ThemeDark,
 	}); err != nil {
 		t.Fatalf("SaveSettings() 失败: %v", err)
 	}

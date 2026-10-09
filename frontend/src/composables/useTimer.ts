@@ -134,21 +134,6 @@ export function useTimer() {
 		return s.todayTotalSec + elapsedSec.value;
 	});
 
-	/**
-	 * 休息提醒进度。breakElapsedSec 是后端上次结算时的值，
-	 * running 时同样要自己往前推，否则进度条是死的。
-	 */
-	const breakSec = computed(() => {
-		const s = state.value;
-		const interval = s ? Math.max(0, s.breakIntervalSec) : 0;
-		let elapsed = s ? Math.max(0, s.breakElapsedSec) : 0;
-		if (s && s.state === "running" && s.breakIntervalSec > 0) {
-			elapsed += runningDeltaSec(s.runningSince, now.value);
-		}
-		if (interval > 0 && elapsed > interval) elapsed = interval;
-		return { elapsed, interval };
-	});
-
 	const stateText = computed(() => {
 		switch (state.value?.state) {
 			case "running":
@@ -167,7 +152,6 @@ export function useTimer() {
 		lastError: readonly(lastError) as Readonly<Ref<string>>,
 		elapsedSec,
 		todayTotalSec,
-		breakSec,
 		stateText,
 	};
 }

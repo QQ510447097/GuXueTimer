@@ -14,7 +14,6 @@ const (
 	eventTimerState    = "timer:state"
 	eventRecordsChange = "records:changed"
 	eventPlansChange   = "plans:changed"
-	eventReminderBreak = "reminder:break"
 	eventNotice        = "notice"
 	// eventNavGoto 让后端请求界面切换到某一页。
 	//
@@ -32,10 +31,13 @@ const (
 	layoutDateKey = "2006-01-02"
 )
 
-// planPalette 是计划配色的白名单。
+// planPalette 是**提供给用户挑**的计划配色，顺序就是界面上色板的顺序。
+//
+// 七个而不是八个：新建计划那个弹出层里色板一行正好放下七个，第八个会掉到第二行、
+// 孤零零一个（实测就是这样）。留七个也好挑——再多就分不清了。
 //
 // 必须是白名单而不是"任意颜色字符串"：颜色会被前端拼进 CSS，
-// 放开了等于留了一个样式注入的口子。这八个都是冷色，
+// 放开了等于留了一个样式注入的口子。这几个都是冷色，
 // 任意几个同时出现在日历和列表里，整体仍然是"蓝白"的基调。
 var planPalette = []string{
 	"#3B82F6", // 蓝
@@ -45,7 +47,43 @@ var planPalette = []string{
 	"#2DD4BF", // 绿松
 	"#6366F1", // 靛
 	"#8B5CF6", // 紫
-	"#A78BFA", // 浅紫
+}
+
+// retiredPlanColors 是**不再提供、但必须继续接受**的历史配色。
+//
+// 浅紫与上面的紫太像，色板里去掉了一个。但绝不能顺手把它从校验里删掉：
+// 老计划可能正用着它，一旦不认，那个计划连改个名字都存不进去
+// （界面回传的还是原来那个颜色）。所以它从色板里消失、却仍然合法。
+var retiredPlanColors = []string{
+	"#A78BFA", // 浅紫（与紫太接近，已从色板退休）
+}
+
+// isPlanColor 判断颜色是否可用（比较时忽略大小写，存储统一用大写）。
+func isPlanColor(color string) bool {
+	return findPlanColor(planPalette, color) != "" || findPlanColor(retiredPlanColors, color) != ""
+}
+
+// canonicalPlanColor 返回规范写法（大写）。
+//
+// 退休配色也在这里被认下来：否则"保存一个用着退休色的老计划"会把它悄悄改成
+// 色板里的第一个颜色，用户会看到自己的计划莫名其妙变了色。
+func canonicalPlanColor(color string) string {
+	if c := findPlanColor(planPalette, color); c != "" {
+		return c
+	}
+	if c := findPlanColor(retiredPlanColors, color); c != "" {
+		return c
+	}
+	return planPalette[0]
+}
+
+func findPlanColor(list []string, color string) string {
+	for _, c := range list {
+		if equalFoldASCII(c, color) {
+			return c
+		}
+	}
+	return ""
 }
 
 // TimerStateDTO 是前端渲染计时器所需的全部状态。
@@ -69,11 +107,6 @@ type TimerStateDTO struct {
 	PlanID    int64  `json:"planId"`
 	PlanName  string `json:"planName"`
 	PlanColor string `json:"planColor"`
-
-	// BreakElapsedSec / BreakIntervalSec 是休息提醒的进度；
-	// BreakIntervalSec 为 0 表示提醒已关闭。
-	BreakElapsedSec  int64 `json:"breakElapsedSec"`
-	BreakIntervalSec int64 `json:"breakIntervalSec"`
 }
 
 // SessionDTO 是一条学习记录。
@@ -128,10 +161,8 @@ type StopResultDTO struct {
 
 // SettingsDTO 是全部用户设置。
 type SettingsDTO struct {
-	BreakReminderEnabled bool   `json:"breakReminderEnabled"`
-	BreakIntervalMin     int    `json:"breakIntervalMin"`
-	MinimizeToTray       bool   `json:"minimizeToTray"`
-	Theme                string `json:"theme"` // system | light | dark
+	MinimizeToTray bool   `json:"minimizeToTray"`
+	Theme          string `json:"theme"` // system | light | dark
 	// CurrentPlanID 只读：由 PlansService.SetCurrent 掌管。
 	// SettingsService.Save 会忽略界面回传的值，因为设置页里没有这个字段，
 	// 拿零值覆盖会把"当前计划"清掉。
@@ -159,11 +190,6 @@ type NavGotoDTO struct {
 	View string `json:"view"`
 }
 
-// ReminderEventDTO 是休息提醒事件的载荷。
-type ReminderEventDTO struct {
-	IntervalMin int `json:"intervalMin"`
-}
-
 // NoticeDTO 是后端抛给界面的一句话提示。
 type NoticeDTO struct {
 	Level   string `json:"level"` // info | warning
@@ -173,18 +199,16 @@ type NoticeDTO struct {
 // timerStateDTOFrom 组装状态 DTO。
 //
 // planID 由调用方决定：空闲时是"当前计划"，进行中时是"这次会话归属的计划"。
-func timerStateDTOFrom(snap timer.Snapshot, now time.Time, todayTotal, breakElapsed, breakInterval int64,
+func timerStateDTOFrom(snap timer.Snapshot, now time.Time, todayTotal int64,
 	planID int64, planName, planColor string) TimerStateDTO {
 	dto := TimerStateDTO{
-		State:            string(snap.State),
-		AccumulatedSec:   snap.AccumulatedSec,
-		CurrentSec:       snap.ElapsedSec(now),
-		TodayTotalSec:    todayTotal,
-		PlanID:           planID,
-		PlanName:         planName,
-		PlanColor:        planColor,
-		BreakElapsedSec:  breakElapsed,
-		BreakIntervalSec: breakInterval,
+		State:          string(snap.State),
+		AccumulatedSec: snap.AccumulatedSec,
+		CurrentSec:     snap.ElapsedSec(now),
+		TodayTotalSec:  todayTotal,
+		PlanID:         planID,
+		PlanName:       planName,
+		PlanColor:      planColor,
 	}
 	if !snap.StartedAt.IsZero() {
 		dto.StartedAt = snap.StartedAt.Format(layoutRecord)
@@ -237,44 +261,20 @@ func daySummaryDTOFrom(sum store.DaySummary) DaySummaryDTO {
 
 func settingsDTOFrom(s settings.Settings) SettingsDTO {
 	return SettingsDTO{
-		BreakReminderEnabled: s.BreakReminderEnabled,
-		BreakIntervalMin:     s.BreakIntervalMin,
-		MinimizeToTray:       s.MinimizeToTray,
-		Theme:                s.Theme,
-		CurrentPlanID:        s.CurrentPlanID,
-		CardMode:             s.CardMode,
+		MinimizeToTray: s.MinimizeToTray,
+		Theme:          s.Theme,
+		CurrentPlanID:  s.CurrentPlanID,
+		CardMode:       s.CardMode,
 	}
 }
 
 func settingsFromDTO(d SettingsDTO) settings.Settings {
 	return settings.Settings{
-		BreakReminderEnabled: d.BreakReminderEnabled,
-		BreakIntervalMin:     d.BreakIntervalMin,
-		MinimizeToTray:       d.MinimizeToTray,
-		Theme:                d.Theme,
-		CurrentPlanID:        d.CurrentPlanID,
-		CardMode:             d.CardMode,
+		MinimizeToTray: d.MinimizeToTray,
+		Theme:          d.Theme,
+		CurrentPlanID:  d.CurrentPlanID,
+		CardMode:       d.CardMode,
 	}
-}
-
-// isPlanColor 判断颜色是否在白名单里（比较时忽略大小写，存储统一用大写）。
-func isPlanColor(color string) bool {
-	for _, c := range planPalette {
-		if equalFoldASCII(c, color) {
-			return true
-		}
-	}
-	return false
-}
-
-// canonicalPlanColor 返回白名单里的规范写法。
-func canonicalPlanColor(color string) string {
-	for _, c := range planPalette {
-		if equalFoldASCII(c, color) {
-			return c
-		}
-	}
-	return planPalette[0]
 }
 
 // equalFoldASCII 只处理 ASCII 大小写；颜色值本来就是 ASCII。

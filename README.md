@@ -1,8 +1,8 @@
 # 孤雪凝时（GuXueTimer）
 
 一个 Windows 桌面端的计时工具。先建计划，再对着计划正计时；数据落在本地
-SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长会发通知提醒休息。
-记录页有近 N 天柱状图和月历热力图，能看出每天学了多久、各计划各占多少。
+SQLite 文件里，关窗最小化到系统托盘。它刻意不打断你：没有任何到点弹出的提醒。
+记录页有本周 / 本月柱状图和月历热力图，能看出每天学了多久、各计划各占多少。
 
 技术栈：**Go + Wails v3 + Vue 3 + Naive UI**。运行期完全离线，不发起任何网络请求。
 
@@ -21,20 +21,22 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
   汇总数字归记录页，这一页只回答"哪些拿到了、还差多少"。
   加新成就就是往定义表里追加一条。
 - **崩溃可恢复**：计时状态每次心跳都落库，异常退出后按规则接回（见"恢复策略"）。
-- **个性化**：管"长什么样、计时页上有什么"。主题（跟随系统 / 浅色 / 深色）、
-  计时页最下方那块区域显示什么（留空 / 图片 / 其他组件·未支持），以及休息提醒的
-  开关与间隔。图片支持 PNG/JPEG/GIF，会复制进数据目录。语录功能已删除（见下）。
+- **个性化**：管"长什么样、计时页上有什么"。主题（跟随系统 / 浅色 / 深色）与
+  计时页最下方那块区域显示什么（留空 / 图片 / 其他组件·未支持）。
+  图片支持 PNG/JPEG/GIF，会复制进数据目录。语录功能已删除（见下）。
 - **设置立即生效**：没有"保存"按钮，改一下就落库，失败会就地显示原因。
 - **休眠防线**：系统休眠或合盖过夜不会被算成学习时间。
 - **系统托盘**：提示里带当前计划与今日累计；右键菜单只有 显示主窗口 / 设置 / 退出 三项——托盘是入口，不是控制面板。
 - **关闭即隐藏**：点窗口 × 只把窗口藏进托盘，进程继续跑；托盘「退出」才真正结束。
-- **休息提醒**：默认每连续学习 45 分钟发一次 Windows 通知（可调 1~480 分钟），
-  同时弹应用内提示作为兜底。开关在「个性化」里——**关掉之后计时页上那块整个消失**，
-  通知也不再发。
 - **单实例**：重复启动只会把已有窗口叫回前台，不会出现两个进程抢数据库。
 
 不做的事（有意留白）：番茄钟、手动补录/编辑记录、每日目标、数据导出、开机自启、
 云同步、把记录批量改挂到别的计划、安装包、成就的解锁时间戳（见下）。
+
+**休息提醒已经整条删除**（曾经有：连续学习到设定间隔就发 Windows 通知 + 应用内横幅）。
+删的理由是它会打断心流——这个工具要的是"安静地记时间"，不是"到点喊你"。
+连带的系统通知链路（`notifier.go`、AppUserModelId 注册）也一起删了：它是为提醒而存在的，
+留着就是死代码。
 
 ## 成就怎么加
 
@@ -271,7 +273,6 @@ RFC3339 字符串（刻意不用 `time.Time`：它会变成 JS 的 `Date`，再�
 main.go              装配 application.Options、窗口、关窗钩子、单实例、日志
 app.go               backend：把各部件与它们的回调接线集中在一处
 tray.go              托盘图标与三项右键菜单；提示文字跟随状态刷新
-notifier.go          系统通知的"失败不致命"包装
 dto.go               跨前后端的数据结构 + 时间戳/时长的格式化
 timerservice.go      ┐
 recordsservice.go    ├ 绑定给前端的四个服务（必须放在 main 包，绑定生成器以
@@ -282,7 +283,6 @@ internal/
   apppath/           数据目录解析与旧目录搬迁（唯一依赖 Wails 运行时的内部包）
   store/             SQLite：连接、pragma、版本化迁移、四张表的读写
   timer/             计时状态机、崩溃恢复、休眠钳制
-  reminder/          休息提醒计数（镜像计时器的权威秒数）
   settings/          设置的默认值、合法性收敛与持久化
 tools/
   gen_icons.py       生成 build/appicon.png 与 assets/tray.png
@@ -298,7 +298,7 @@ tools/
 ```
 
 分层的关键约束：`internal/store` 只依赖标准库和 SQLite 驱动，因此测试可以开一个
-临时文件库跑真实 SQL；`internal/timer` 与 `internal/reminder` 不依赖 Wails，
+临时文件库跑真实 SQL；`internal/timer` 不依赖 Wails，
 时间由注入的 `clock func() time.Time` 提供，所有时间相关用例都是确定性的、毫秒级跑完。
 
 ### 状态机
@@ -354,13 +354,10 @@ idle --Start--> running --Pause--> paused --Resume--> running --Stop--> idle
 没有这道防线的话，合盖过夜再打开会得到一个 8 小时的"学习记录"。
 另外还注册了 `SystemWillSleep` / `SystemDidWake`，休眠时暂停、唤醒后恢复。
 
-休息提醒直接镜像计时器的权威秒数（而不是自己再算一遍墙钟），所以暂停与休眠
-天然不会累加，两套判定也不会出现分歧。
-
 ## 测试
 
 ```bash
-go test ./internal/... .                # 100 个用例，全部毫秒级完成
+go test ./internal/... .                # 165 个用例，全部毫秒级完成
 cd frontend && cmd /c "npm run build"   # vue-tsc 类型检查 + 生产构建
 
 # 端到端冒烟测试：需要先构建 bin\GuXueTimer.exe
@@ -379,14 +376,15 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 460x620 -Dark
 - `internal/timer`：暂停区间不计入、时长精度无取整漂移、三种恢复分支、
   休眠钳制、时间回拨、写库失败时内存回滚、回调不死锁、
   计划在"开始→暂停→恢复→结束"与两条恢复分支上都不丢
-- `internal/settings` / `internal/reminder`：脏数据回落默认值、阈值闭区间、
-  暂停不累加、缩短间隔立刻触发、新会话从零重算、重开提醒时基准重对齐
+- `internal/settings`：脏数据回落默认值、枚举取值收敛（含废弃的 `quote` 与
+  `cardMode` 的迁移）、背景图只留文件名、老库里那些死键（`windowTranslucent` /
+  `breakReminder*` / `customQuote`）不影响加载
 - 主包集成测试：完整计时流程落库、计划服务的全套校验（重名、配色白名单、
-  长度、控制字符）、归档/删除当前计划后自动纠正、有记录的计划拒绝删除、
+  长度、控制字符）、**退休配色仍被接受**（老计划不能因为删了一个颜色就改不了名）、
+  归档/删除当前计划后自动纠正、有记录的计划拒绝删除、
   切换计划时先结算（含"点的是当前计划就什么都不做"与"时长过短仍切换"两条）、
   删除正在计时的当前计划被拒且无副作用、保存设置不会清掉当前计划与背景图、
-  背景图导入与 `/user/` 中间件（含路径穿越）、心跳驱动提醒
-  （含"事件里的提醒进度不能过期"这条不变量）、成就的阈值与单调性
+  背景图导入与 `/user/` 中间件（含路径穿越）、成就的阈值与单调性
 
 ### 端到端冒烟测试
 
@@ -398,9 +396,8 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Size 460x620 -Dark
 3. 关窗后进程仍存活、主窗口句柄归零 —— 关闭确实只是隐藏到托盘
 4. 重复启动：第二个实例自行退出，第一个继续运行
 5. 把 `minimizeToTray` 改成 false 后，关窗能真正退出进程
-6. 预置一次"进行中"的会话后启动：走真实的崩溃恢复分支，并等心跳到点，
-   确认 `已发出休息提醒 ... systemToast=true` —— 计时 → 心跳 → 提醒 →
-   Windows 通知这整条链路真的通了（这一步要等约 90 秒）
+6. 预置一次"进行中"的会话后启动：走真实的崩溃恢复分支，会话被接着计时，
+   并等一拍心跳确认时长真的结算进了库（中止崩溃丢时长的那类回归）
 7. 旧数据目录（`GoXueTimer`）被一次性搬进新目录，且搬的是同一份库
 8. 造一个 v1 库再启动：升到 v2，旧记录与旧设置都在
 9. 预置"计划 + 10 小时前中断的会话"再启动：恢复逻辑自动结算，
@@ -451,12 +448,10 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Dark
 #   plans      -> 点开归档确认框（验证浮层里的文字对比度）
 #   records    -> 切到「本月」（验证区间切换真的重新取数）
 #   timer      -> 打开计划选择器再点「新建计划」（验证内联表单，也顺带验证窄窗口下弹出层不顶出边界）
-#   personalize-> 先点禁用的「其他组件」（值必须不变），再选「图片」（值必须变成 image），
-#                 然后连点两下提醒间隔的加号（验证"最近的整十"步进、连点会累加）
+#   personalize-> 先点禁用的「其他组件」（值必须不变），再选「图片」（值必须变成 image）
 #
 # -Act 跑的是**用户真实的设置**（截图工具连的就是正式数据目录），所以 personalize
-# 那个动作结尾会把自己改过的两项改回去，并在报告里打印"还原: 图片/60"。
-# 提醒开关关着时步进器是禁用的，那一段会明确标成"（提醒开关关着，跳过）"而不是静默通过。
+# 那个动作结尾会把自己改过的那一项改回去，并在报告里打印"还原: 图片"。
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views plans -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views records -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views personalize,timer -Act
@@ -470,7 +465,6 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views personalize,time
 |---|---|---|
 | `data-points` | `BarChart` 根节点 | 区间切换后柱子根数真的变了 |
 | `:data-period` | 记录页区间标题 | 标题跟着变（**必须绑值**，无值属性的 `dataset` 是空串） |
-| `data-stepper-value` | `StepNumber` 的 input | 步进规则与连点累加 |
 | `data-bottom` | 计时页根节点 / 个性化页的下拉 | 底部区域模式（none / image），也用来验证禁用项选不中 |
 | `data-view` / `data-active` | `NavRail` 的导航项 | 能点到、且真的切过去了 |
 
@@ -571,9 +565,6 @@ exe 的版本信息、产品名与清单来自 `build/config.yml` 的 `info:` �
 - 应用"点了没反应"：看 `%LOCALAPPDATA%\GuXueTimer\app.log` 和 `error.log`。
   生产构建带 `-H windowsgui`，没有控制台窗口，日志只写到文件。
   日志里没有「前端已连接后端」这一行，就说明界面从未成功调用到 Go 侧。
-- 只弹应用内提醒、没有 Windows 通知：通知服务在启动时往
-  `HKCU\Software\Classes` 注册失败（受限账户或损坏的用户配置）。
-  这种情况会记一条 warning 并降级——系统通知注册不上不该让应用打不开。
 - 前端拿到了旧的数据结构：忘了跑 `wails3 task common:generate:bindings -f`。
 - 界面像是旧版本：`bin\GuXueTimer.exe` 里的前端是构建时嵌进去的，
   改了前端要重新 `wails3 build`（只跑 `npm run build` 不会更新 exe）。

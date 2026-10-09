@@ -153,11 +153,15 @@ const PROBE = `(() => {
 			: -1,
 		// 图表区间的标题（本周（…）/ 某年某月）。区间切换是否生效，靠它 + barPoints 一起判。
 		periodLabel: document.querySelector('[data-period]')?.dataset.period ?? '',
-		// 提醒间隔步进器的当前值（-1 表示这一屏没有它）。用来断言"43 -> 50 -> 60"。
-		stepper: Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1),
 		// 计时页最下方那块区域显示什么：none | image。
 		// 个性化页的下拉与计时页的根节点都挂了这个属性，同一个选择器两边都能读。
 		bottom: document.querySelector('[data-bottom]')?.dataset.bottom ?? '',
+		// 那块面板的实际宽高。它必须是 16:9（桌面壁纸的通用比例）——
+		// 单看截图只能"觉得差不多"，这里给出可断言的数字。
+		bottomBox: (() => {
+			const el = document.querySelector('.card-panel');
+			return el ? el.clientWidth + 'x' + el.clientHeight : '';
+		})(),
 		backdropFilter: backdrop,
 		panelCount: document.querySelectorAll('.gx-glass').length,
 		themeClass: document.querySelector('.theme-dark') ? 'dark' : 'light',
@@ -187,8 +191,8 @@ const PRE_CAPTURE = {
 		btn.click();
 		return true;
 	})()`,
-	// settings 的动作没了：步进器（原来在这页）已随休息提醒搬到个性化页，
-	// 连点加号那条断言合并进了 personalize 的动作里。
+	// settings 的动作没了：那一页已经没有需要脚本化交互的控件
+	// （休息提醒连同它的步进器一起删除了）。
 	// 打开计划选择器，再点里面的「新建计划」，把内联表单截下来。
 	// 分两步所以要 await：弹出层是异步渲染的，紧接着找按钮会找不到。
 	timer: `(async () => {
@@ -203,19 +207,18 @@ const PRE_CAPTURE = {
 		return true;
 	})()`,
 	/*
-	 * 个性化页：一次验三件事，并返回可读结果。
+	 * 个性化页：一次验两件事，并返回可读结果。
 	 *
 	 *   1. 点「其他组件」（禁用占位）→ 底部区域的值**不能**变
 	 *   2. 再选「图片」→ 值要变成 image
-	 *   3. 连点两下提醒间隔的加号 → 步进要累加（60 -> 70 -> 80）
-	 *
-	 * 第 3 条原来挂在设置页，休息提醒搬到个性化之后跟着挪过来。连点是有意为之：
-	 * 父组件的 prop 要下一个 tick 才回流，若步进器按 prop 算，第二次点击会从旧值
-	 * 重算、只前进一格——探针读到的就不是 80。
 	 *
 	 * 类名不去猜：选项用 [class*="select-option"] 模糊匹配（naive-ui 的选项类名
 	 * 在各版本间变过），触发元素用组件上挂的 data-bottom-select 找。
 	 * 找不到就如实返回 no-select / no-option，不静默通过。
+	 *
+	 * 收尾会把它改过的设置改回去：这一跑动的是**用户真实的设置**（截图工具连的
+	 * 就是正式数据目录），跑一次就把人家的"底部区域"从留空改成图片，是那种
+	 * "跑完才发现"的脏改动。
 	 */
 	personalize: `(async () => {
 		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -246,39 +249,12 @@ const PRE_CAPTURE = {
 		await wait(400);
 		const afterImage = read();
 
-		const stepperBefore = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
-		const plus = document.querySelector('[data-step="1"]');
-		// 提醒开关关着时步进器是禁用的（产品行为），这时点不动是**对的**——
-		// 如实标注出来，免得读报告的人以为断言通过了却什么也没验。
-		const stepperSkipped = !plus || plus.disabled === true;
-		if (!stepperSkipped) {
-			plus.click();
-			plus.click();
-			await wait(300);
-		}
-		const stepperAfter = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
-		const stepperNote = stepperSkipped ? '（提醒开关关着，跳过）' : '';
-
-		/*
-		 * 收尾：把它改过的两项改回去。
-		 *
-		 * 这一跑动的是**用户真实的设置**（截图工具连的就是正式数据目录）。跑一次就把人家的
-		 * "底部区域"从留空改成图片、提醒间隔从 60 改成 80，是那种"跑完才发现"的脏改动。
-		 * 步进是对称的（+2 再 -2 回到原点），下拉则按记录下来的原值再选一次。
-		 */
 		const back = await openAndFind(before === 'image' ? '图片' : '留空');
 		if (back.hit) back.hit.click();
 		await wait(300);
-		const minus = document.querySelector('[data-step="-1"]');
-		if (!stepperSkipped && minus) {
-			minus.click();
-			minus.click();
-			await wait(300);
-		}
 		const restored = read();
-		const stepperRestored = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
 
-		return \`\${disabledFlag}: \${before}->\${afterDisabled}; 图片: \${afterImage}; 步进: \${stepperBefore}->\${stepperAfter}\${stepperNote}; 还原: \${restored}/\${stepperRestored}\`;
+		return \`\${disabledFlag}: \${before}->\${afterDisabled}; 图片: \${afterImage}; 还原: \${restored}\`;
 	})()`,
 };
 

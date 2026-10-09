@@ -486,6 +486,36 @@ func TestPlans_PaletteIsCopy(t *testing.T) {
 	}
 }
 
+// 退休配色（浅紫）不再出现在色板里，但**必须**继续被认下来。
+//
+// 老计划可能正用着它：如果校验不认，那个计划连改个名字都存不进去；
+// 而如果 canonical 不认，保存时会被悄悄改成色板里的第一个颜色，
+// 用户会看到自己的计划莫名其妙变了色。两种都是"删一个颜色"顺手带出来的 bug。
+func TestPlans_RetiredColorStillAccepted(t *testing.T) {
+	h := newHarness(t)
+
+	for _, c := range retiredPlanColors {
+		for _, offered := range planPalette {
+			if strings.EqualFold(c, offered) {
+				t.Fatalf("退休配色 %s 仍在色板里，退休就没意义了", c)
+			}
+		}
+	}
+
+	// 用退休色建计划：必须成功。
+	id := h.mustCreatePlan(t, "老计划", retiredPlanColors[0])
+	plan, err := h.plans.Update(id, "老计划（改名）", retiredPlanColors[0])
+	if err != nil {
+		t.Fatalf("用退休配色改名字被拒了: %v", err)
+	}
+	if plan.Color != retiredPlanColors[0] {
+		t.Errorf("改名后颜色 = %q, 期望保持 %q", plan.Color, retiredPlanColors[0])
+	}
+	if plan.Name != "老计划（改名）" {
+		t.Errorf("改名没生效: %q", plan.Name)
+	}
+}
+
 // ---------------------------------------------------------------- 会话归属
 
 // 开始计时时，会话必须挂在"当前计划"上，而不是未分类。
@@ -602,10 +632,8 @@ func TestSettings_SavePreservesCurrentPlan(t *testing.T) {
 	h := newHarness(t)
 
 	saved, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: false,
-		BreakIntervalMin:     50,
-		MinimizeToTray:       false,
-		Theme:                settings.ThemeDark,
+		MinimizeToTray: false,
+		Theme:          settings.ThemeDark,
 		// 故意不带 CurrentPlanID——真实界面就是这样回传的。
 	})
 	if err != nil {
@@ -617,7 +645,7 @@ func TestSettings_SavePreservesCurrentPlan(t *testing.T) {
 	if currentOf(h) != h.defaultPlanID {
 		t.Errorf("落库的 CurrentPlanID = %d, 期望 %d", currentOf(h), h.defaultPlanID)
 	}
-	if saved.BreakIntervalMin != 50 || saved.Theme != settings.ThemeDark {
+	if saved.Theme != settings.ThemeDark || saved.MinimizeToTray {
 		t.Errorf("其它字段没生效: %+v", saved)
 	}
 }
@@ -643,10 +671,8 @@ func TestSettings_LegacyTranslucentKeyIsIgnored(t *testing.T) {
 	// 保存一次设置之后，那个遗留键应当不复存在（我们不再写它，
 	// 而 SaveSettings 只覆盖传入的键——所以这里断言的是"没有新写回去"）。
 	saved, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: true,
-		BreakIntervalMin:     45,
-		MinimizeToTray:       true,
-		Theme:                settings.ThemeLight,
+		MinimizeToTray: true,
+		Theme:          settings.ThemeLight,
 	})
 	if err != nil {
 		t.Fatalf("Save() 失败: %v", err)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { ref } from "vue";
 import { NSwitch, useMessage } from "naive-ui";
 import * as SettingsService from "../../bindings/goxuetimer/settingsservice";
 import GlassPanel from "../components/GlassPanel.vue";
@@ -48,13 +48,6 @@ void SettingsService.Version()
 		version.value = "";
 	});
 
-/** 版本与技术栈一行显示；拿不到版本号时不留下一个孤零零的 "v"。 */
-const versionLine = computed(() =>
-	[version.value ? `v${version.value}` : "", "Go + Wails v3 + Vue 3"]
-		.filter(Boolean)
-		.join(" · "),
-);
-
 async function openDataDir(): Promise<void> {
 	if (openingDir.value) return;
 	openingDir.value = true;
@@ -76,7 +69,7 @@ async function openDataDir(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">关闭窗口时最小化到托盘</span>
-						<span class="row-hint gx-faint">关闭后计时与休息提醒仍在后台运行</span>
+						<span class="row-hint gx-faint">关闭后计时仍在后台运行</span>
 					</div>
 					<NSwitch
 						:value="settings.minimizeToTray"
@@ -104,9 +97,12 @@ async function openDataDir(): Promise<void> {
 		<GlassPanel padding="16px 18px">
 			<p class="gx-section-title">关于</p>
 			<div class="about">
-				<span class="about-name">孤雪凝时</span>
+				<span class="about-head">
+					<span class="about-name">孤雪凝时</span>
+					<span v-if="version" class="about-version gx-faint">v{{ version }}</span>
+				</span>
 				<span class="gx-muted">雪落无声，专注有痕。一个记录时间足迹的工具。</span>
-				<span class="about-stack gx-mono gx-faint">{{ versionLine }}</span>
+				<span class="about-stack gx-mono gx-faint">Go + Wails v3 + Vue 3</span>
 			</div>
 		</GlassPanel>
 
@@ -177,9 +173,20 @@ async function openDataDir(): Promise<void> {
 	font-size: 13px;
 }
 
+/* 名字与版本号同一行：版本号跟着名字走，保持灰色小字 */
+.about-head {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+}
+
 .about-name {
 	font-size: 15px;
 	font-weight: 650;
+}
+
+.about-version {
+	font-size: 12px;
 }
 
 .about-stack {

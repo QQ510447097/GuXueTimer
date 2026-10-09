@@ -12,10 +12,8 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 
 	"goxuetimer/internal/apppath"
-	"goxuetimer/internal/reminder"
 	"goxuetimer/internal/settings"
 	"goxuetimer/internal/store"
 	"goxuetimer/internal/timer"
@@ -28,10 +26,8 @@ import (
 type backend struct {
 	clock func() time.Time
 
-	db       *store.DB
-	timer    *timer.Service
-	reminder *reminder.Reminder
-	notifier *notifierService
+	db    *store.DB
+	timer *timer.Service
 
 	app    *application.App
 	window *application.WebviewWindow
@@ -125,12 +121,9 @@ func newBackend(db *store.DB, clk func() time.Time) (*backend, error) {
 		clock:    clk,
 		db:       db,
 		timer:    timerSvc,
-		reminder: reminder.New(),
-		notifier: newNotifierService(),
 		settings: cfg,
 		shutdown: make(chan struct{}),
 	}
-	b.reminder.Configure(cfg.BreakReminderEnabled, cfg.Interval())
 	return b, nil
 }
 
@@ -257,7 +250,7 @@ func (b *backend) activePlanIDQuiet() int64 {
 	return b.currentPlanID()
 }
 
-// updateSettings 先落库、再改内存、最后把新配置推给提醒计数器。
+// updateSettings 先落库、再改内存、最后把新配置推给窗口外壳。
 func (b *backend) updateSettings(next settings.Settings) error {
 	next = next.Normalize()
 	if err := next.Save(b.db); err != nil {
@@ -266,7 +259,6 @@ func (b *backend) updateSettings(next settings.Settings) error {
 	b.settingsMu.Lock()
 	b.settings = next
 	b.settingsMu.Unlock()
-	b.reminder.Configure(next.BreakReminderEnabled, next.Interval())
 	b.syncWindowBackground(next)
 	return nil
 }
@@ -318,7 +310,6 @@ func (b *backend) stateDTO() (TimerStateDTO, error) {
 	if err != nil {
 		return TimerStateDTO{}, err
 	}
-	elapsed, interval := b.reminder.Snapshot()
 
 	// 空闲时报"当前计划"（也就是下一段会记到哪），进行中时报这次会话自己的计划。
 	//
@@ -331,7 +322,7 @@ func (b *backend) stateDTO() (TimerStateDTO, error) {
 	}
 	planName, planColor := b.planLabel(planID)
 
-	return timerStateDTOFrom(snap, now, sum.TotalSec, elapsed, interval, planID, planName, planColor), nil
+	return timerStateDTOFrom(snap, now, sum.TotalSec, planID, planName, planColor), nil
 }
 
 // emitState 把最新状态广播给前端与托盘。
@@ -459,11 +450,6 @@ func (b *backend) attach(app *application.App, window *application.WebviewWindow
 
 	// 回调必须在 Run 之前注册好，Recover 才能把提示投递出去。
 	b.timer.OnStateChange(func(snap timer.Snapshot) {
-		// 会话结束（含被放弃）时把休息提醒的进度清零，
-		// 下一次会话从零开始算连续学习。
-		if snap.State == timer.StateIdle {
-			b.reminder.Reset()
-		}
 		b.emitState()
 	})
 
@@ -498,17 +484,10 @@ func (b *backend) stop() {
 	b.shutdownOn.Do(func() { close(b.shutdown) })
 }
 
-// heartbeat 是唯一的心跳：先推进休息提醒，再结算计时时长。
+// heartbeat 是唯一的心跳：结算计时时长并落库。
 //
-// 顺序不能反。计时器结算后会通过 OnStateChange 发出一次 timer:state，
-// 那份 DTO 里带着提醒的进度；如果先结算计时，这次事件携带的就是**上一拍**的
-// 提醒进度，而 runningSince 已经前进了 30 秒，前端算出来的倒计时会一直偏大
-// 约一个心跳周期，直到下次真正触发提醒才跳回来。
-//
-// 反过来先推进提醒再结算计时，这次事件里的两个时间戳就是自洽的。
-//
-// 提醒直接镜像计时器的权威秒数，所以"休眠只算一个心跳""暂停不算时长"
-// 这些判定只需要在计时器里存在一份。
+// 心跳之所以存在（而不是纯靠渲染时算），是因为"暂停/休眠该怎么算""异常退出后
+// 该怎么接回"这些判定必须有一份权威的、定期落盘的答案；前端只负责显示。
 func (b *backend) heartbeat() {
 	ticker := time.NewTicker(timer.TickInterval)
 	defer ticker.Stop()
@@ -518,35 +497,11 @@ func (b *backend) heartbeat() {
 		case <-b.shutdown:
 			return
 		case <-ticker.C:
-			if b.reminder.Tick(b.timer.ElapsedSec()) {
-				b.fireBreakReminder()
-			}
 			if _, err := b.timer.Tick(); err != nil {
 				slog.Error("计时心跳失败", "err", err)
 			}
 		}
 	}
-}
-
-// fireBreakReminder 发一次休息提醒：系统通知 + 应用内事件双通道。
-//
-// 双通道是有意的：系统通知可能被"专注助手"静音，应用内横幅不会。
-func (b *backend) fireBreakReminder() {
-	cfg := b.Settings()
-	minutes := cfg.BreakIntervalMin
-
-	body := fmt.Sprintf("已连续学习 %d 分钟，起来活动一下", minutes)
-	sent := b.notifier.send(notifications.NotificationOptions{
-		ID:    fmt.Sprintf("goxuetimer-break-%d", b.clock().Unix()),
-		Title: "该休息了",
-		Body:  body,
-	})
-	// 这条日志是"提醒链路真的走通了"的客观锚点：生产构建没有控制台，
-	// 而系统通知本身可能被专注助手静音、无法从外部观察。
-	slog.Info("已发出休息提醒", "minutes", minutes, "systemToast", sent)
-
-	b.emit(eventReminderBreak, ReminderEventDTO{IntervalMin: minutes})
-	b.emitState()
 }
 
 // showMainWindow 把主窗口叫回前台。

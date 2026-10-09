@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
-
 	"goxuetimer/internal/settings"
 	"goxuetimer/internal/store"
 	"goxuetimer/internal/timer"
@@ -123,9 +121,6 @@ func newHarness(t *testing.T) *harness {
 
 	// 模拟 attach 里的回调注册与恢复流程（不含窗口/托盘）。
 	b.timer.OnStateChange(func(snap timer.Snapshot) {
-		if snap.State == timer.StateIdle {
-			b.reminder.Reset()
-		}
 		b.emitState()
 	})
 	b.timer.OnNotice(func(level timer.NoticeLevel, message string) {
@@ -374,20 +369,19 @@ func TestService_SettingsRoundTripAndNormalize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() 失败: %v", err)
 	}
-	if got.BreakIntervalMin != settings.DefaultBreakIntervalMin || got.Theme != settings.Defaults().Theme {
+	if got.Theme != settings.Defaults().Theme || got.CardMode != settings.DefaultCardMode {
 		t.Errorf("默认设置 = %+v", got)
 	}
 
 	saved, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: false,
-		BreakIntervalMin:     25,
-		MinimizeToTray:       false,
-		Theme:                settings.ThemeDark,
+		MinimizeToTray: false,
+		Theme:          settings.ThemeDark,
+		CardMode:       settings.CardModeImage,
 	})
 	if err != nil {
 		t.Fatalf("Save() 失败: %v", err)
 	}
-	if saved.BreakIntervalMin != 25 || saved.Theme != settings.ThemeDark || saved.MinimizeToTray {
+	if saved.Theme != settings.ThemeDark || saved.MinimizeToTray || saved.CardMode != settings.CardModeImage {
 		t.Errorf("Save() 回读 = %+v, 与传入不一致", saved)
 	}
 
@@ -400,115 +394,16 @@ func TestService_SettingsRoundTripAndNormalize(t *testing.T) {
 		t.Errorf("重新载入 = %+v, 期望 %+v", reloaded, settingsFromDTO(saved))
 	}
 
-	// 越界值应被拒绝，而不是静默写进去。
-	if _, err := h.settings.Save(SettingsDTO{BreakIntervalMin: 0, Theme: settings.ThemeSystem}); err == nil {
-		t.Error("间隔为 0 应被拒绝")
-	}
-	if _, err := h.settings.Save(SettingsDTO{BreakIntervalMin: 45, Theme: "rainbow"}); err == nil {
+	// 不认识的取值应被拒绝，而不是静默写进去。
+	if _, err := h.settings.Save(SettingsDTO{Theme: "rainbow"}); err == nil {
 		t.Error("未知主题应被拒绝")
 	}
-}
-
-// 改设置必须立刻影响提醒进度：关闭后 intervalSec 归零。
-func TestService_SettingsAffectReminder(t *testing.T) {
-	h := newHarness(t)
-
-	state, err := h.timer.GetState()
-	if err != nil {
-		t.Fatalf("GetState() 失败: %v", err)
-	}
-	if state.BreakIntervalSec != int64(settings.DefaultBreakIntervalMin)*60 {
-		t.Errorf("BreakIntervalSec = %d, 期望 %d",
-			state.BreakIntervalSec, settings.DefaultBreakIntervalMin*60)
-	}
-
-	if _, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: false,
-		BreakIntervalMin:     15,
-		MinimizeToTray:       true,
-		Theme:                settings.ThemeSystem,
-	}); err != nil {
-		t.Fatalf("Save() 失败: %v", err)
-	}
-
-	state, err = h.timer.GetState()
-	if err != nil {
-		t.Fatalf("GetState() 失败: %v", err)
-	}
-	// 关闭提醒时 Configure 把 intervalSec 设为 0，前端据此隐藏进度条。
-	if state.BreakIntervalSec != 0 {
-		t.Errorf("关闭提醒后 BreakIntervalSec = %d, 期望 0", state.BreakIntervalSec)
+	if _, err := h.settings.Save(SettingsDTO{Theme: settings.ThemeSystem, CardMode: "video"}); err == nil {
+		t.Error("未知卡片模式应被拒绝")
 	}
 }
 
 // ---------------------------------------------------------------- 心跳与恢复
-
-// 心跳按配置的间隔驱动休息提醒，并且提醒进度与计时锚点必须自洽。
-//
-// 这里复刻 heartbeat 的循环体但不真的发系统通知：通知服务需要
-// application 启动后才可用，那部分只能实跑验证。
-func TestService_HeartbeatDrivesBreakReminder(t *testing.T) {
-	h := newHarness(t)
-
-	if _, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: true,
-		BreakIntervalMin:     1,
-		MinimizeToTray:       true,
-		Theme:                settings.ThemeSystem,
-	}); err != nil {
-		t.Fatalf("Save() 失败: %v", err)
-	}
-
-	if _, err := h.timer.Start(); err != nil {
-		t.Fatalf("Start() 失败: %v", err)
-	}
-
-	// 顺序必须和 backend.heartbeat 一致：先提醒、后结算计时。
-	fires := 0
-	for i := 0; i < 6; i++ {
-		h.clock.Advance(timer.TickInterval)
-		if h.b.reminder.Tick(h.b.timer.ElapsedSec()) {
-			fires++
-		}
-		if _, err := h.b.timer.Tick(); err != nil {
-			t.Fatalf("第 %d 次 Tick() 失败: %v", i+1, err)
-		}
-	}
-
-	// 6 拍 = 180s，间隔 60s。第一拍只用来对齐基准，所以在第 3 拍（90s）
-	// 和第 5 拍（150s）各触发一次；这是"观察到的学习时长"的量化粒度。
-	if fires != 2 {
-		t.Errorf("触发次数 = %d, 期望 2", fires)
-	}
-
-	// 计时器发出来的那份状态里，提醒进度必须是"这一拍之后"的值。
-	// 如果 heartbeat 里先结算计时再推进提醒，事件携带的就是上一拍的值，
-	// 前端按它算出来的倒计时会一直偏大约一个心跳周期。
-	reminderElapsed, _ := h.b.reminder.Snapshot()
-	if got := h.spy.lastState(t).BreakElapsedSec; got != reminderElapsed {
-		t.Errorf("事件里的 BreakElapsedSec = %d, 提醒实际进度 = %d（说明事件携带了过期的提醒进度）",
-			got, reminderElapsed)
-	}
-
-	// 关掉提醒后不应再触发。
-	if _, err := h.settings.Save(SettingsDTO{
-		BreakReminderEnabled: false,
-		BreakIntervalMin:     1,
-		MinimizeToTray:       true,
-		Theme:                settings.ThemeSystem,
-	}); err != nil {
-		t.Fatalf("Save() 失败: %v", err)
-	}
-	for i := 0; i < 4; i++ {
-		h.clock.Advance(timer.TickInterval)
-		if h.b.reminder.Tick(h.b.timer.ElapsedSec()) {
-			t.Fatal("提醒已关闭，不应触发")
-		}
-		if _, err := h.b.timer.Tick(); err != nil {
-			t.Fatalf("Tick() 失败: %v", err)
-		}
-	}
-}
 
 // 心跳把时长结算进状态，并且事件里带上正确的当前时长。
 func TestService_HeartbeatSettles(t *testing.T) {
@@ -587,26 +482,8 @@ func TestService_RecoveryAutoStopEmitsRecordsChanged(t *testing.T) {
 	}
 }
 
-// 通知服务没启动成功时必须安静降级，而不是抛错或 panic。
-//
-// 这里刻意不调用真正的 ServiceStartup：它会往 HKCU\Software\Classes 写注册表，
-// 不该在单元测试里发生。测的是"未就绪"这个状态下所有入口的行为。
-func TestNotifier_DegradesWhenNotReady(t *testing.T) {
-	n := newNotifierService()
-
-	if n.Available() {
-		t.Error("未启动时 Available() 应为 false")
-	}
-	if n.ServiceName() == "" {
-		t.Error("ServiceName() 不应为空")
-	}
-	if n.send(notifications.NotificationOptions{ID: "x", Title: "t", Body: "b"}) {
-		t.Error("未就绪时 send 应返回 false")
-	}
-	if err := n.ServiceShutdown(); err != nil {
-		t.Errorf("未就绪时 ServiceShutdown() 应返回 nil, 实际 %v", err)
-	}
-}
+// 通知服务随休息提醒一起删除了：这个应用不再发系统通知。
+// 相关用例（降级行为、发送失败）也一并删除——留着就是在测不存在的代码。
 
 func TestFormatDurationCN(t *testing.T) {
 	cases := []struct {
@@ -631,10 +508,9 @@ func TestFormatDurationCN(t *testing.T) {
 
 func TestSettingsFromDTORoundTrip(t *testing.T) {
 	in := SettingsDTO{
-		BreakReminderEnabled: true,
-		BreakIntervalMin:     50,
-		MinimizeToTray:       false,
-		Theme:                settings.ThemeLight,
+		MinimizeToTray: false,
+		Theme:          settings.ThemeLight,
+		CardMode:       settings.CardModeImage,
 	}
 	if got := settingsDTOFrom(settingsFromDTO(in)); got != in {
 		t.Errorf("往返 = %+v, 期望 %+v", got, in)

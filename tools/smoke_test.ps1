@@ -11,7 +11,7 @@
       3. 关窗只是隐藏到托盘，进程继续存活
       4. 重复启动不会开出第二个进程
       5. 关掉"最小化到托盘"之后，关窗能真正退出
-      6. 崩溃恢复 + 休息提醒链路（真实 Windows 通知）
+      6. 崩溃恢复（预置进行中的会话 -> 重启后接着计时并落库）
       7. 旧数据目录（GoXueTimer）会被一次性搬到 GuXueTimer
       8. v1 库会被迁移到 v2，旧记录一条不丢
       9. 计划能一路落到记录里（预置进行中的会话 -> 自动结算 -> sessions.plan_id）
@@ -305,9 +305,9 @@ if ($script:python) {
     Write-Skip '找不到 python，无法改写设置，跳过该场景'
 }
 
-# ---------------------------------------------------------------- 6. 提醒链路
+# ---------------------------------------------------------------- 6. 崩溃恢复
 
-Write-Host "`n[6] 崩溃恢复 + 休息提醒链路（这一步要等心跳，约 90 秒）"
+Write-Host "`n[6] 崩溃恢复（预置一次进行中的会话，重启后必须接着计时）"
 
 if ($script:python) {
     Stop-App
@@ -317,32 +317,27 @@ if ($script:python) {
     $proc = Start-App
     $null = Wait-MainWindow
 
-    # 提醒需要三拍心跳：第一拍只用来对齐基准，之后每拍 30 秒。
-    $deadline = (Get-Date).AddSeconds(140)
-    $reminded = $false
+    # 恢复分支应该留下痕迹：会话被接着计时，而不是被丢弃。
+    # 等一拍心跳让时长真的涨起来（心跳 30 秒一次）。
+    $deadline = (Get-Date).AddSeconds(45)
+    $restored = $false
     while ((Get-Date) -lt $deadline) {
-        if (Test-LogContains '已发出休息提醒') {
-            $reminded = $true
+        $state = (& $script:python $script:dbHelper inspect $dbPath 2>&1) -join ' '
+        # 字段名是 timer_accumulated_sec；0 表示心跳还没落过账。
+        if ($state -match 'timer_state=running' -and $state -match 'timer_accumulated_sec=[1-9]\d*') {
+            $restored = $true
             break
         }
         Start-Sleep -Seconds 3
     }
-    Assert-That $reminded '休息提醒已触发（app.log 有「已发出休息提醒」）'
-    if ($reminded) {
-        $hit = (Get-LogTail 200 | Where-Object { $_ -match '已发出休息提醒' } | Select-Object -Last 1)
-        Write-Host "        $hit" -ForegroundColor DarkGray
-        Assert-That ($hit -match 'systemToast=true') '系统通知发送成功（未降级为仅应用内提醒）'
-    } else {
-        # 失败时把证据摆出来，下次才不会又靠猜。
-        Write-Host '  --- app.log 尾部 ---' -ForegroundColor Yellow
-        Get-LogTail 12 | ForEach-Object { "  $_" }
-        Write-Host '  --- 计时状态（accumulated 应当已经涨到 60 以上）---' -ForegroundColor Yellow
-        (& $script:python $script:dbHelper inspect $dbPath 2>&1) | ForEach-Object { "  $_" }
-    }
-
-    # 恢复分支也应该留下痕迹：会话被接着计时，而不是被丢弃。
     $state = (& $script:python $script:dbHelper inspect $dbPath 2>&1) -join ' '
     Assert-That ($state -match 'timer_state=running') '重启后会话被恢复为运行中'
+    Assert-That $restored "心跳把时长结算进了库（$state）"
+    if (-not $restored) {
+        Write-Host '  --- app.log 尾部 ---' -ForegroundColor Yellow
+        Get-LogTail 12 | ForEach-Object { "  $_" }
+    }
+    Stop-App
 } else {
     Write-Skip '找不到 python，无法预置计时状态，跳过该场景'
 }

@@ -38,18 +38,6 @@ export function formatDurationCN(totalSec: number): string {
 	return `${m} 分钟`;
 }
 
-/** 倒计时文案：不足 1 分钟时说「若干秒」，比取整成 0 分更清楚。 */
-export function formatCountdownCN(totalSec: number): string {
-	const safe = Number.isFinite(totalSec) && totalSec > 0 ? Math.floor(totalSec) : 0;
-	if (safe <= 0) return "现在";
-	if (safe < 60) return `${safe} 秒`;
-	const m = Math.floor(safe / 60);
-	if (m < 60) return `${m} 分`;
-	const h = Math.floor(m / 60);
-	const rest = m % 60;
-	return rest > 0 ? `${h} 小时 ${rest} 分` : `${h} 小时`;
-}
-
 /** RFC3339（带本地偏移）→ HH:MM:SS。解析不出来时原样返回，不假装成功。 */
 export function formatClockTime(rfc3339: string): string {
 	if (!rfc3339) return "--:--";
@@ -190,29 +178,3 @@ export function weekStart(key: string): string {
 	return addDays(key, -weekdayFromMonday(key));
 }
 
-// 休息提醒间隔的合法区间，与后端 internal/settings 的 Min/MaxBreakIntervalMin 一致。
-export const MIN_BREAK_INTERVAL_MIN = 1;
-export const MAX_BREAK_INTERVAL_MIN = 480;
-
-/**
- * 提醒间隔的加减步进：落到**最近的整十**上。
- *
- *   43 → + → 50 → + → 60
- *   43 → − → 40 → − → 30
- *
- * 为什么不是固定的 ±10：间隔是个"大概多久提醒我一下"的数字，用户不会需要 43 这种精度。
- * 从 45 起步时，固定 ±10 会得到 35 / 55 这种同样不整的数，一直按下去永远落不到整十上；
- * 按"最近的整十"走，两下之内就落到 10 的倍数，越按越整齐。
- *
- * 下界是 1：减到 10 以下时不再按整十走（否则会直接跳到 0 或负数），
- * 停在 1 分钟。上界由后端把关，这里先夹住，免得界面显示一个存不进去的值。
- */
-export function stepBy10(value: number, dir: 1 | -1): number {
-	const v = Number.isFinite(value) ? Math.round(value) : MIN_BREAK_INTERVAL_MIN;
-	if (dir > 0) {
-		const next = Math.floor(v / 10) * 10 + 10;
-		return Math.min(MAX_BREAK_INTERVAL_MIN, Math.max(MIN_BREAK_INTERVAL_MIN, next));
-	}
-	const next = Math.ceil(v / 10) * 10 - 10;
-	return next < MIN_BREAK_INTERVAL_MIN ? MIN_BREAK_INTERVAL_MIN : next;
-}

@@ -243,16 +243,16 @@ func TestSettings_RoundTrip(t *testing.T) {
 
 	if err := db.SaveSettings(map[string]string{
 		"theme":             "dark",
-		"breakIntervalMin":  "45",
+		"cardMode":          "image",
 		"minimizeToTray":    "true",
-		"breakReminderOn":   "true",
+		"someFutureKey":     "true",
 		"themeUnusedLegacy": "x",
 	}); err != nil {
 		t.Fatalf("SaveSettings() 失败: %v", err)
 	}
 
 	// 再次写入同一键走 upsert 分支。
-	if err := db.SaveSettings(map[string]string{"breakIntervalMin": "50"}); err != nil {
+	if err := db.SaveSettings(map[string]string{"cardMode": "none"}); err != nil {
 		t.Fatalf("SaveSettings(覆盖) 失败: %v", err)
 	}
 
@@ -263,8 +263,8 @@ func TestSettings_RoundTrip(t *testing.T) {
 	if len(all) != 5 {
 		t.Errorf("设置条数 = %d, 期望 5 (%v)", len(all), all)
 	}
-	if all["breakIntervalMin"] != "50" {
-		t.Errorf("breakIntervalMin = %q, 期望 \"50\"", all["breakIntervalMin"])
+	if all["cardMode"] != "none" {
+		t.Errorf("cardMode = %q, 期望 \"none\"", all["cardMode"])
 	}
 	if all["theme"] != "dark" {
 		t.Errorf("theme = %q, 期望 \"dark\"", all["theme"])

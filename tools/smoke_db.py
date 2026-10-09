@@ -113,9 +113,11 @@ def _upsert_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
 def seed_running(db_path: str, interval_min: int) -> int:
     """把计时状态播成"正在计时中的一次会话"。
 
-    这样下次启动会走真实的崩溃恢复分支，随后心跳照常推进；
-    再配合 1 分钟的提醒间隔，就能在无人值守的情况下验证
-    "计时 → 心跳 → 休息提醒 → 系统通知" 这整条链路。
+    这样下次启动会走真实的崩溃恢复分支，随后心跳照常推进时长，
+    用来验证"重启 → 恢复会话 → 心跳落库"这条链路。
+
+    interval_min 参数留着是为了不改调用方签名：休息提醒已经整条删除，
+    它现在只是被忽略（也不再往库里写提醒相关的键）。
     """
     conn = sqlite3.connect(db_path)
     try:
@@ -125,15 +127,12 @@ def seed_running(db_path: str, interval_min: int) -> int:
             "last_resumed_at = ?, accumulated_sec = 0 WHERE id = 1",
             (now, now),
         )
-        _upsert_setting(conn, "breakReminderEnabled", "true")
-        _upsert_setting(conn, "breakIntervalMin", str(interval_min))
         conn.commit()
 
         row = conn.execute(
             "SELECT state, last_resumed_at FROM timer_state WHERE id = 1"
         ).fetchone()
         print(f"timer_state={row[0]},{row[1]}")
-        print(f"breakIntervalMin={interval_min}")
     finally:
         conn.close()
     return 0
@@ -216,8 +215,6 @@ def seed_plan_and_stale_running(db_path: str, stale_hours: int = 10) -> int:
         plan_id = conn.execute("SELECT id FROM plans ORDER BY id DESC LIMIT 1").fetchone()[0]
 
         _upsert_setting(conn, "currentPlanId", str(plan_id))
-        # 提醒关掉，免得它的通知干扰这个场景的判定。
-        _upsert_setting(conn, "breakReminderEnabled", "false")
 
         conn.execute(
             "UPDATE timer_state SET state = 'running', started_at = ?, "

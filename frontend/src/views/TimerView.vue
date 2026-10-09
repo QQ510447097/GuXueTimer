@@ -15,7 +15,6 @@ import StatTile from "../components/StatTile.vue";
 import {
 	errText,
 	formatClock,
-	formatCountdownCN,
 	formatDurationCN,
 	formatTodayLabel,
 } from "../composables/format";
@@ -34,7 +33,7 @@ import {
 	type TimerState,
 } from "../composables/useTimer";
 
-const { state, now, busy, lastError, elapsedSec, todayTotalSec, breakSec } = useTimer();
+const { state, now, busy, lastError, elapsedSec, todayTotalSec } = useTimer();
 const { activePlans, nameOf, refresh: refreshPlans } = usePlans();
 const { settings } = useSettings();
 const { imageUrl, load: loadBackground } = usePersonalization();
@@ -82,17 +81,6 @@ const primaryLabel = computed(() => {
 	if (timerState.value === "paused") return "继续";
 	return "开始学习";
 });
-
-const reminderOff = computed(() => breakSec.value.interval <= 0);
-const breakPercent = computed(() => {
-	const { elapsed, interval } = breakSec.value;
-	if (interval <= 0) return 0;
-	return Math.min(100, Math.max(0, (elapsed / interval) * 100));
-});
-const breakRemainSec = computed(() =>
-	Math.max(0, breakSec.value.interval - breakSec.value.elapsed),
-);
-const breakIntervalMin = computed(() => Math.round(breakSec.value.interval / 60));
 
 /**
  * 「本计划今日」与「今日场次」来自记录接口，不在计时状态里。
@@ -285,25 +273,10 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 			</div>
 		</GlassPanel>
 
-		<!-- 休息提醒：关掉之后这一块整个不出现（在个性化页里开关）。
-		     判据用后端状态（关闭提醒时 breakIntervalSec 为 0）而不是本地设置，
-		     这样首帧不会闪一下。 -->
-		<GlassPanel v-if="!reminderOff" padding="12px 16px">
-			<div class="reminder">
-				<div class="reminder-head">
-					<span>距下次休息提醒还有 {{ formatCountdownCN(breakRemainSec) }}</span>
-					<span class="gx-faint gx-tabular">间隔 {{ breakIntervalMin }} 分钟</span>
-				</div>
-				<div class="track">
-					<div class="fill" :style="{ width: `${breakPercent}%` }"></div>
-				</div>
-			</div>
-		</GlassPanel>
-
 		<!-- 最下方那块区域：显示什么由个性化页决定。
 		     「留空」时这里连面板都没有，`min-height: 100%` 让下面自然留白。
-		     选「图片」时面板吸收剩余高度（见 .card-panel），图铺满。 -->
-		<GlassPanel v-if="cardMode === 'image'" class="card-panel" padding="14px 16px">
+		     选「图片」时面板是固定 16:9（见 .card-panel），画面刚好是桌面壁纸的比例。 -->
+		<GlassPanel v-if="cardMode === 'image'" class="card-panel" padding="0">
 			<img v-if="showImage" class="photo" :src="imageUrl" alt="背景图" />
 			<div v-else class="card-empty">
 				<span class="hint gx-muted">还没有选背景图，去「个性化」挑一张</span>
@@ -319,11 +292,8 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 .timer-view {
 	gap: 12px;
 	/*
-	 * 撑满内容区的高度，好让最下面那块（选「图片」时）吸收剩余空间。
-	 *
-	 * 这里**不再是**"填掉下方空白"的意思：个性化里选「留空」时，下面就是故意留白的，
-	 * 没有面板需要长高。留着 min-height 只是为了让图片模式能铺满，且在窗口变高时
-	 * 不会把别的面板挤出去。
+	 * 撑满内容区的高度。个性化里选「留空」时下面就是故意留白的，
+	 * 这里只是让"内容比一屏矮"时页面仍然撑满，背景层与滚动手感保持一致。
 	 *
 	 * 顺带说明：探针的"一屏放得下"检查**测不出**这种空白——scrollHeight 永远不会
 	 * 小于 clientHeight，内容比容器矮时两者相等。所以留白是否合适得靠眼睛看截图。
@@ -332,17 +302,20 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 }
 
 /*
- * 图片面板吸收剩余高度；窗口矮时缩回内容高度（min-height），不会把别的面板挤出去。
+ * 图片面板：固定 16:9。
  *
- * 这里不用"给图片写 height: 100%"：那要靠百分比高度逐级解析，中间任何一环
- * 高度是 auto 就会失效（实测就是这么失效的——面板长高了，里面的图没跟着长）。
- * 让面板本身变成一个 flex 列、图片 flex-grow，高度关系由 flex 布局直接算出来。
+ * 刻意**不**让它吸收剩余高度：那样面板高度由窗口决定，同一张壁纸在不同窗口高度下
+ * 会被裁掉不同的部分，"刚好填满"就成了碰运气。16:9 是桌面壁纸的通用比例，
+ * 配合 object-fit: cover，一张 16:9 的图正好完整铺满，不裁也不留边。
+ *
+ * aspect-ratio 让高度由宽度算出来（宽度由内容区给定），所以窗口高度变化时这一块
+ * 不变形，多出来的空间就留在下方——和「留空」模式一样是留白。
  */
 .card-panel {
 	display: flex;
 	flex-direction: column;
-	flex: 1 1 auto;
-	min-height: 168px;
+	flex: 0 0 auto;
+	aspect-ratio: 16 / 9;
 	padding: 0;
 	overflow: hidden;
 }
@@ -355,8 +328,7 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
  * 窗口 800 高时整页就被撑出十来个像素、多出一条滚动条——而它看起来只是"图铺满了"，
  * 很容易被当成没问题（实测：默认竖图/占位框时都不会暴露，换一张横图才会）。
  *
- * 所以给它 `flex-basis: 0` + `min-height: 0`：高度只由面板给多少决定（面板自己有
- * 168px 的下限），图片只管按 cover 填满那块地方。
+ * 所以给它 `flex-basis: 0` + `min-height: 0`：高度只由面板给多少决定，图片按 cover 填满。
  */
 .photo {
 	display: block;
@@ -374,7 +346,6 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 	justify-content: center;
 	gap: 10px;
 	flex: 1 1 auto;
-	min-height: 168px;
 	margin: 14px;
 	border-radius: var(--gx-r-md);
 	border: 1px dashed var(--gx-line);
@@ -466,33 +437,5 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 .tile-cell {
 	flex: 1 1 0;
 	min-width: 0;
-}
-
-.reminder {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-}
-
-.reminder-head {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: 10px;
-	font-size: 13px;
-}
-
-.track {
-	height: 6px;
-	border-radius: var(--gx-r-pill);
-	background: var(--gx-track);
-	overflow: hidden;
-}
-
-.fill {
-	height: 100%;
-	border-radius: var(--gx-r-pill);
-	background: var(--gx-accent-grad);
-	transition: width var(--gx-dur) linear;
 }
 </style>

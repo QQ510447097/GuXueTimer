@@ -5,22 +5,21 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"goxuetimer/internal/store"
 )
 
 // 存储键。已发布后不要改名，否则旧设置会读不出来。
 //
-// 两个已经死掉、但键仍留在库里的历史项（不会有人再读，留着无害）：
+// 三个已经死掉、但键仍留在库里的历史项（不会有人再读，留着无害）：
 //   - windowTranslucent：窗口毛玻璃曾经是个开关，现在恒为开、界面里没有开关。
 //   - customQuote / quoteIndex：语录功能已整条删除（见 CardModeNone 的注释）。
+//   - breakReminderEnabled / breakIntervalMin：休息提醒已整条删除
+//     （它会打断心流，见 README「不做的事」）。
 const (
-	KeyBreakReminderEnabled = "breakReminderEnabled"
-	KeyBreakIntervalMin     = "breakIntervalMin"
-	KeyMinimizeToTray       = "minimizeToTray"
-	KeyTheme                = "theme"
-	KeyCurrentPlanID        = "currentPlanId"
+	KeyMinimizeToTray = "minimizeToTray"
+	KeyTheme          = "theme"
+	KeyCurrentPlanID  = "currentPlanId"
 	// KeyCardMode 的名字里是"card"（卡片），值是 none | image。
 	// 历史上还有过 quote（语录卡片），已废弃。键名保持不变。
 	KeyCardMode        = "cardMode"
@@ -36,13 +35,6 @@ const (
 	// 两处必须是同一个：否则用户把设置文件改坏之后，界面会变成另一种外观，
 	// 让人以为主题被重置成了别的东西。软件的主色调是蓝白，两者都是浅色。
 	DefaultTheme = ThemeLight
-)
-
-// 休息提醒间隔的合法区间（分钟）。
-const (
-	MinBreakIntervalMin     = 1
-	MaxBreakIntervalMin     = 480
-	DefaultBreakIntervalMin = 45
 )
 
 // 计时页最下方那块区域显示什么（"卡片模式"）。
@@ -64,10 +56,8 @@ const (
 
 // Settings 是全部用户设置。
 type Settings struct {
-	BreakReminderEnabled bool
-	BreakIntervalMin     int
-	MinimizeToTray       bool
-	Theme                string
+	MinimizeToTray bool
+	Theme          string
 	// CurrentPlanID 是当前选中的学习计划；0 表示还没有（首次启动）。
 	//
 	// 它是"设置"而不是"计划表的一列"：这是用户的当下选择，
@@ -90,27 +80,17 @@ type Settings struct {
 // Defaults 返回首次启动使用的默认设置。
 func Defaults() Settings {
 	return Settings{
-		BreakReminderEnabled: true,
-		BreakIntervalMin:     DefaultBreakIntervalMin,
-		MinimizeToTray:       true,
-		Theme:                DefaultTheme,
-		CardMode:             DefaultCardMode,
+		MinimizeToTray: true,
+		Theme:          DefaultTheme,
+		CardMode:       DefaultCardMode,
 	}
-}
-
-// Intervals 是休息提醒的间隔时长。
-func (s Settings) Interval() time.Duration {
-	return time.Duration(s.BreakIntervalMin) * time.Minute
 }
 
 // Normalize 把越界或无法识别的值收敛回合法范围。
 //
 // 设置可能来自手改的数据库或旧版本，所以这里不报错、只纠正——
-// 一个坏掉的间隔值不应该让提醒功能整个失效。
+// 一个坏掉的取值不应该让整个设置加载失败。
 func (s Settings) Normalize() Settings {
-	if s.BreakIntervalMin < MinBreakIntervalMin || s.BreakIntervalMin > MaxBreakIntervalMin {
-		s.BreakIntervalMin = DefaultBreakIntervalMin
-	}
 	if s.CurrentPlanID < 0 {
 		s.CurrentPlanID = 0
 	}
@@ -142,16 +122,6 @@ func Load(st *store.DB) (Settings, error) {
 		return out, err
 	}
 
-	if v, ok := raw[KeyBreakReminderEnabled]; ok {
-		if b, err := strconv.ParseBool(v); err == nil {
-			out.BreakReminderEnabled = b
-		}
-	}
-	if v, ok := raw[KeyBreakIntervalMin]; ok {
-		if n, err := strconv.Atoi(v); err == nil {
-			out.BreakIntervalMin = n
-		}
-	}
 	if v, ok := raw[KeyMinimizeToTray]; ok {
 		if b, err := strconv.ParseBool(v); err == nil {
 			out.MinimizeToTray = b
@@ -179,13 +149,11 @@ func Load(st *store.DB) (Settings, error) {
 func (s Settings) Save(st *store.DB) error {
 	n := s.Normalize()
 	return st.SaveSettings(map[string]string{
-		KeyBreakReminderEnabled: strconv.FormatBool(n.BreakReminderEnabled),
-		KeyBreakIntervalMin:     strconv.Itoa(n.BreakIntervalMin),
-		KeyMinimizeToTray:       strconv.FormatBool(n.MinimizeToTray),
-		KeyTheme:                n.Theme,
-		KeyCurrentPlanID:        strconv.FormatInt(n.CurrentPlanID, 10),
-		KeyCardMode:             n.CardMode,
-		KeyBackgroundImage:      n.BackgroundImage,
+		KeyMinimizeToTray:  strconv.FormatBool(n.MinimizeToTray),
+		KeyTheme:           n.Theme,
+		KeyCurrentPlanID:   strconv.FormatInt(n.CurrentPlanID, 10),
+		KeyCardMode:        n.CardMode,
+		KeyBackgroundImage: n.BackgroundImage,
 	})
 }
 
@@ -193,14 +161,10 @@ func (s Settings) Save(st *store.DB) error {
 //
 // 枚举字段的**空串表示"没指定"**，不报错——Normalize 会把它填成默认值。
 // 这一点是有意的：界面可能只带了一部分字段（老版本前端、或只改某一项的调用），
-// 若把空串当成非法值，用户改个提醒间隔就会收到"未知的卡片模式 """，
+// 若把空串当成非法值，用户改个主题就会收到"未知的卡片模式 """，
 // 一个不相关的字段把整次保存搞失败，是比静默回落更糟的失败方式。
 // 真正需要拦住的是"有值但不认识"（比如手改库把 theme 写成 rainbow）。
 func (s Settings) Validate() error {
-	if s.BreakIntervalMin < MinBreakIntervalMin || s.BreakIntervalMin > MaxBreakIntervalMin {
-		return fmt.Errorf("休息提醒间隔必须在 %d~%d 分钟之间",
-			MinBreakIntervalMin, MaxBreakIntervalMin)
-	}
 	switch s.Theme {
 	case "", ThemeSystem, ThemeLight, ThemeDark:
 	default:

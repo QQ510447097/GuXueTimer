@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { NRadioButton, NRadioGroup, NSelect, NSwitch, useMessage } from "naive-ui";
+import { computed, onMounted } from "vue";
+import { NRadioButton, NRadioGroup, NSelect, useMessage } from "naive-ui";
 import GlassPanel from "../components/GlassPanel.vue";
-import StepNumber from "../components/StepNumber.vue";
 import { usePersonalization } from "../composables/usePersonalization";
 import { useSettings } from "../composables/useSettings";
 
 /**
- * 个性化页。
+ * 个性化页：主题 + 计时页最下方那块区域显示什么。
  *
- * 装两件事：外观（主题 + 将来会有多张背景图）和计时页上出现哪些模块。
- * 主题与休息提醒都是从设置页搬过来的——设置页管的是"应用怎么工作"
- * （托盘、数据、关于），而"长什么样、页面上有什么"是另一回事，
- * 混在一页会让设置页变成什么都往里塞的杂物抽屉。
+ * 主题是从设置页搬过来的——设置页管的是"应用怎么工作"（托盘、数据、关于），
+ * "长什么样、页面上有什么"是另一回事，混在一页会让设置页变成什么都往里塞的杂物抽屉。
  *
- * 这一页刻意**不做预览、也不撑满窗口**：预览会把"用户即将看到的"和
- * "当前这一页"混在一起看，而且为了让它有意义还得把卡片撑到和计时页一样高，
- * 于是整页被一块预览占满。控件本身就是自解释的，下面留白就留白。
+ * 这一页刻意**不做预览、也不撑满窗口**：预览会把"用户即将看到的"和"当前这一页"
+ * 混在一起看，而且为了让它有意义还得把卡片撑到和计时页一样高，于是整页被一块
+ * 预览占满。控件本身就是自解释的，下面留白就留白。
+ *
+ * 这里也刻意**不写解释性小字**（"这个选项决定……"）。用户看得懂下拉框，
+ * 那些字只是在向开发者解释设计。
  */
 const { settings, patch } = useSettings();
 const { imageUrl, picking, error: imageError, load: loadBackground, pick, clear } =
@@ -60,24 +60,6 @@ function setCardMode(value: string): void {
 	void patch({ cardMode: value });
 }
 
-/*
- * 提醒间隔不能每敲一键就提交：StepNumber 只在失焦/回车/加减时发 commit。
- * 一份本地草稿 + 被别处改动时同步，这套做法原来在设置页里。
- */
-const intervalDraft = ref<number>(settings.value.breakIntervalMin);
-watch(
-	settings,
-	(next) => {
-		intervalDraft.value = next.breakIntervalMin;
-	},
-	{ immediate: true },
-);
-
-function commitInterval(): void {
-	if (intervalDraft.value === settings.value.breakIntervalMin) return;
-	void patch({ breakIntervalMin: intervalDraft.value });
-}
-
 async function onPickImage(): Promise<void> {
 	const changed = await pick();
 	if (changed) message.success("背景图已更新");
@@ -103,21 +85,6 @@ async function onClearImage(): Promise<void> {
 						<NRadioButton value="light">浅色</NRadioButton>
 						<NRadioButton value="dark">深色</NRadioButton>
 					</NRadioGroup>
-				</div>
-
-				<!-- 占位：多张背景图还没做（先只留位置，选项本身禁用） -->
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">多张背景图</span>
-					</div>
-					<NSelect
-						class="pick"
-						size="small"
-						disabled
-						:value="null"
-						placeholder="待定"
-						:options="[{ label: '待定', value: 'pending' }]"
-					/>
 				</div>
 			</div>
 		</GlassPanel>
@@ -168,28 +135,6 @@ async function onClearImage(): Promise<void> {
 				</div>
 				<p v-if="imageIdle" class="note gx-faint">已保存一张背景图，选「图片」即可显示</p>
 				<p v-if="imageError" class="error">{{ imageError }}</p>
-
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">休息提醒</span>
-					</div>
-					<NSwitch
-						:value="settings.breakReminderEnabled"
-						@update:value="(value: boolean) => patch({ breakReminderEnabled: value })"
-					/>
-				</div>
-
-				<div class="row">
-					<div class="row-text">
-						<span class="row-label">提醒间隔</span>
-					</div>
-					<StepNumber
-						v-model="intervalDraft"
-						:disabled="!settings.breakReminderEnabled"
-						suffix="分钟"
-						@commit="commitInterval"
-					/>
-				</div>
 			</div>
 		</GlassPanel>
 	</section>
