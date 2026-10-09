@@ -197,7 +197,7 @@ foreach ($v in $report.views) {
     $scrollNote = if ($v.contentOverflowY) { '要滚动' } else { '一屏放得下' }
     Write-Host "         内容区 $($v.contentClient) 高 / 实际 $($v.contentScroll) 高（$scrollNote）"
     if ($v.barPoints -ge 0) { Write-Host "         柱状图数据点 $($v.barPoints) 根" }
-    if ($v.bottom) { Write-Host "         底部区域模式 $($v.bottom)（面板 $($v.bottomBox)，期望 16:9）" }
+    if ($v.bottom) { Write-Host "         底部区域模式 $($v.bottom)（面板 $($v.bottomBox)）" }
     Write-Host "         主题 $($v.themeClass) / 玻璃面板 $($v.panelCount) 个 / backdrop-filter: $($v.backdropFilter)"
     if ($null -ne $v.acted) { Write-Host "         截图前交互: $($v.acted)" }
     foreach ($p in $problems) {

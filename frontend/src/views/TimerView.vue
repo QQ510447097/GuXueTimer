@@ -275,7 +275,7 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 
 		<!-- 最下方那块区域：显示什么由个性化页决定。
 		     「留空」时这里连面板都没有，`min-height: 100%` 让下面自然留白。
-		     选「图片」时面板是固定 16:9（见 .card-panel），画面刚好是桌面壁纸的比例。 -->
+		     选「图片」时面板吸收剩余高度（见 .card-panel），图铺满整块地方。 -->
 		<GlassPanel v-if="cardMode === 'image'" class="card-panel" padding="0">
 			<img v-if="showImage" class="photo" :src="imageUrl" alt="背景图" />
 			<div v-else class="card-empty">
@@ -302,20 +302,23 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 }
 
 /*
- * 图片面板：固定 16:9。
+ * 图片面板：**吸收剩余高度**，不指定比例。
  *
- * 刻意**不**让它吸收剩余高度：那样面板高度由窗口决定，同一张壁纸在不同窗口高度下
- * 会被裁掉不同的部分，"刚好填满"就成了碰运气。16:9 是桌面壁纸的通用比例，
- * 配合 object-fit: cover，一张 16:9 的图正好完整铺满，不裁也不留边。
+ * 试过固定比例（16:9 / 4:3），结论是不该固定：图片区的高度由窗口决定才好用——
+ * 窗口高它就高，窗口矮它就矮，永远把时钟下面那一块填满，不会在底部留一条空白；
+ * 固定比例则要反过来拿窗口高度去迁就它（4:3 比 16:9 高 81px，就得把窗口从 800 抬到 820，
+ * 而 800 本来是记录页要求的下限）。
  *
- * aspect-ratio 让高度由宽度算出来（宽度由内容区给定），所以窗口高度变化时这一块
- * 不变形，多出来的空间就留在下方——和「留空」模式一样是留白。
+ * 图片怎么落进这块地方交给 `object-fit: cover`：比例不合适时它会裁掉多余的部分，
+ * 但整块区域始终被填满。
+ *
+ * 窗口矮时面板缩回 min-height（168px），不会把上面的面板挤出去。
  */
 .card-panel {
 	display: flex;
 	flex-direction: column;
-	flex: 0 0 auto;
-	aspect-ratio: 16 / 9;
+	flex: 1 1 auto;
+	min-height: 168px;
 	padding: 0;
 	overflow: hidden;
 }

@@ -156,8 +156,8 @@ const PROBE = `(() => {
 		// 计时页最下方那块区域显示什么：none | image。
 		// 个性化页的下拉与计时页的根节点都挂了这个属性，同一个选择器两边都能读。
 		bottom: document.querySelector('[data-bottom]')?.dataset.bottom ?? '',
-		// 那块面板的实际宽高。它必须是 16:9（桌面壁纸的通用比例）——
-		// 单看截图只能"觉得差不多"，这里给出可断言的数字。
+		// 那块面板的实际宽高。它没有固定比例（吸收剩余高度），这个数字用来看
+		// "窗口一变它有没有跟着变"——单看截图只能"觉得差不多"。
 		bottomBox: (() => {
 			const el = document.querySelector('.card-panel');
 			return el ? el.clientWidth + 'x' + el.clientHeight : '';
