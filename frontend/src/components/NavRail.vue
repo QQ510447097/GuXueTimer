@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Component } from "vue";
+import brandMark from "../assets/brand-mark.png";
 
 /**
  * 左侧导航栏。
@@ -23,12 +24,22 @@ defineProps<{
 const emit = defineEmits<{
 	(e: "select", key: string): void;
 }>();
+
+/*
+ * 品牌图就是应用图标本身（frontend/src/assets/brand-mark.png），
+ * 从 assets/ 里那张 1024 原图裁掉透明边、缩成 128px 得来的。
+ *
+ * 这里以前是白字「雪」+ CSS 渐变方块。换成真图标是为了"一个应用一个标识"：
+ * 任务栏、标题栏、托盘、界面左上角应该是同一张脸。裁边是必须的——原图四周有
+ * 约 14% 的透明留白，直接用的话可见主体只有 32px 上下，比它右边那排导航图标
+ * 大不了一圈，就失去了"这里唯一一个标识物"的读法。
+ */
 </script>
 
 <template>
 	<aside class="rail gx-glass">
 		<div class="brand" :title="brandTitle">
-			<div class="brand-mark">雪</div>
+			<img class="brand-mark" :src="brandMark" alt="" />
 		</div>
 
 		<!-- 品牌区与导航之间加一条分割线：图标放大之后两者的视觉重量接近，
@@ -68,19 +79,17 @@ const emit = defineEmits<{
  * 品牌图标刻意比导航图标大一圈（44 vs 19）：它是这一栏里唯一的"标识"，
  * 和导航项等大时读起来就像"又一个按钮"。底下也不再挂文字——窗口标题栏
  * 已经写着应用名，竖排的两个字只会让这一栏显得挤。
+ *
+ * 图标自带圆角方块与投影（就是应用图标本身），所以这里不再画背景和 box-shadow：
+ * 再叠一层方块会在图标透明的四角露出底色，读起来像套了两层框。
  */
 .brand-mark {
-	display: flex;
-	align-items: center;
-	justify-content: center;
+	display: block;
 	width: 44px;
 	height: 44px;
-	border-radius: 15px;
-	background: var(--gx-accent-grad);
-	color: #fff;
-	font-size: 23px;
-	font-weight: 700;
-	box-shadow: 0 8px 20px -8px rgba(59, 130, 246, 0.6);
+	/* 拖拽/选中时不要出现蓝色高亮与图片拖影：它是标识，不是可交互内容 */
+	user-select: none;
+	-webkit-user-drag: none;
 }
 
 .divider {
