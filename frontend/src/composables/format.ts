@@ -1,8 +1,8 @@
 /**
  * 纯格式化与错误文案工具。
  *
- * 刻意放在独立模块里、不依赖任何响应式状态：useTimer / useRecords / useSettings
- * 都要用 errText，如果留在 useTimer 里就会形成 useTimer ↔ useRecords 的循环导入。
+ * 刻意放在独立模块里、不依赖任何响应式状态：useTimer / useStats / useSettings
+ * 都要用 errText，如果留在 useTimer 里就会形成 useTimer ↔ useStats 的循环导入。
  * 循环导入在 ES 模块下靠函数声明提升能跑，但会随打包顺序出问题。
  */
 

@@ -26,6 +26,14 @@ import (
 // 一旦那条挂了，就把这里退回成 ASCII 的 "GuXueTimer"，其余中文名不受影响。
 const appDisplayName = "孤雪凝时"
 
+// appVersion 是界面「关于」里显示的版本号。
+//
+// 改它的时候**同时**要改 build/config.yml 的 info.version——那一份是给
+// exe 的版本信息用的（wails3 会写进 windows/info.json 与 .syso），
+// 两处不一致的话，资源管理器里看到的版本和界面里看到的会对不上。
+// 改完跑 `wails3 task common:update:build-assets`。
+const appVersion = "1.0.0"
+
 // Wails 通过 embed 把前端产物打进二进制。
 //
 //go:embed all:frontend/dist

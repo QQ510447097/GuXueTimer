@@ -347,11 +347,22 @@ async function onPlanCreated(plan: PlanDTO): Promise<void> {
 	overflow: hidden;
 }
 
+/*
+ * 图片**不能**参与"这一段该多高"的计算。
+ *
+ * `<img>` 是替换元素，`min-height` 默认是 auto（= 它自己的固有高度）。一张 4:3 的横图
+ * 在 510px 宽的容器里固有高度约 380px，于是整条 flex 链都以为"这一段至少要 380"，
+ * 窗口 800 高时整页就被撑出十来个像素、多出一条滚动条——而它看起来只是"图铺满了"，
+ * 很容易被当成没问题（实测：默认竖图/占位框时都不会暴露，换一张横图才会）。
+ *
+ * 所以给它 `flex-basis: 0` + `min-height: 0`：高度只由面板给多少决定（面板自己有
+ * 168px 的下限），图片只管按 cover 填满那块地方。
+ */
 .photo {
 	display: block;
 	width: 100%;
-	min-height: 168px;
-	flex: 1 1 auto;
+	flex: 1 1 0;
+	min-height: 0;
 	object-fit: cover;
 }
 

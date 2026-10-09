@@ -3,7 +3,6 @@ import { Events } from "@wailsio/runtime";
 import * as TimerService from "../../bindings/goxuetimer/timerservice";
 import type { StopResultDTO, TimerStateDTO } from "../../bindings/goxuetimer/models";
 import { errText } from "./format";
-import { refreshRecords } from "./useRecords";
 import { refreshStats } from "./useStats";
 
 /**
@@ -97,7 +96,6 @@ export function useTimer() {
 		});
 
 		Events.On("records:changed", () => {
-			void refreshRecords();
 			// 落库/删除都会改变区间统计与月历，图表也要跟着重算。
 			void refreshStats();
 			// 「今日已落库时长」也变了，顺手拉一次权威状态。

@@ -97,7 +97,6 @@ async function onClearImage(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">主题</span>
-						<span class="row-hint gx-faint">窗口毛玻璃是常开的，没有开关</span>
 					</div>
 					<NRadioGroup :value="settings.theme" size="small" @update:value="setTheme">
 						<NRadioButton value="system">跟随系统</NRadioButton>
@@ -110,7 +109,6 @@ async function onClearImage(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">多张背景图</span>
-						<span class="row-hint gx-faint">还没做，先把位置占住</span>
 					</div>
 					<NSelect
 						class="pick"
@@ -126,13 +124,11 @@ async function onClearImage(): Promise<void> {
 
 		<GlassPanel padding="16px 18px">
 			<p class="gx-section-title">计时页</p>
-			<p class="section-hint gx-faint">这里决定计时页上出现哪些模块</p>
 
 			<div class="rows">
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">底部区域</span>
-						<span class="row-hint gx-faint">计时页最下方那块区域显示什么</span>
 					</div>
 					<NSelect
 						class="pick"
@@ -149,9 +145,7 @@ async function onClearImage(): Promise<void> {
 				<div v-if="cardMode === 'image'" class="row">
 					<div class="row-text">
 						<span class="row-label">背景图</span>
-						<span class="row-hint gx-faint">
-							支持 PNG / JPEG / GIF，会复制一份到数据目录
-						</span>
+						<span class="row-hint gx-faint">支持 PNG / JPEG / GIF</span>
 					</div>
 					<div class="actions">
 						<button
@@ -178,9 +172,6 @@ async function onClearImage(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">休息提醒</span>
-						<span class="row-hint gx-faint">
-							关掉之后计时页上不再出现提醒，通知也不再发
-						</span>
 					</div>
 					<NSwitch
 						:value="settings.breakReminderEnabled"
@@ -191,9 +182,6 @@ async function onClearImage(): Promise<void> {
 				<div class="row">
 					<div class="row-text">
 						<span class="row-label">提醒间隔</span>
-						<span class="row-hint gx-faint">
-							1 ~ 480 分钟，按已连续学习的时间计算；加减按最近的整十分钟走
-						</span>
 					</div>
 					<StepNumber
 						v-model="intervalDraft"
@@ -217,11 +205,6 @@ async function onClearImage(): Promise<void> {
 	flex-direction: column;
 	gap: 14px;
 	margin-top: 12px;
-}
-
-.section-hint {
-	margin-top: 3px;
-	font-size: 11.5px;
 }
 
 .row {

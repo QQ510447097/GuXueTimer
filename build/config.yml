@@ -13,7 +13,9 @@ info:
   description: "孤雪凝时 —— 专注计时与学习记录"
   copyright: "(c) 2026, GuDuXue"
   comments: "Go + Wails v3 + Vue 3"
-  version: "2.0.0"
+  # 改版本号时同时改 main.go 的 appVersion（界面「关于」显示的就是它），
+  # 然后跑 `wails3 task common:update:build-assets` 让 exe 的版本信息跟上。
+  version: "1.0.0"
 
 # iOS build configuration (uncomment to customise iOS project generation)
 # Note: Keys under `ios` OVERRIDE values under `info` when set.

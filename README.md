@@ -14,10 +14,12 @@ SQLite 文件里，关窗最小化到系统托盘，连续学习到设定时长�
 - **归属清晰**：每次会话都记在当时的计划上。切换计划时，正在进行的这一段会**先结算**
   到原来那个计划上再切过去——不需要先手动结束一次，归属也不会丢。
 - **记录与统计**：本周 / 本月柱状图 + 当月热力图日历（按天深浅着色，格子里有日期），
-  可按计划筛选；点某天看当天明细，含按计划的时长拆分。图表与日历讲同一件事——
-  选「本月」时图表画的就是日历当前那个月，翻月两边一起变。
-- **成就**：徽章完全由历史记录推导（第一步 / 十小时 / 三日不辍），
-  顶部带累计时长、当前与最长连续天数。加新成就就是往定义表里追加一条。
+  可按计划筛选；下方是累计统计（累计时长、场次、有记录的天数、单次最长、当前与最长连续、
+  早起/深夜开始过几次）。图表与日历讲同一件事——选「本月」时图表画的就是日历当前那个月，
+  翻月两边一起变。
+- **成就**：徽章完全由历史记录推导（第一步 / 十小时 / 三日不辍），一页只有徽章网格——
+  汇总数字归记录页，这一页只回答"哪些拿到了、还差多少"。
+  加新成就就是往定义表里追加一条。
 - **崩溃可恢复**：计时状态每次心跳都落库，异常退出后按规则接回（见"恢复策略"）。
 - **个性化**：管"长什么样、计时页上有什么"。主题（跟随系统 / 浅色 / 深色）、
   计时页最下方那块区域显示什么（留空 / 图片 / 其他组件·未支持），以及休息提醒的
@@ -448,12 +450,15 @@ powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Dark
 # 截图前做一次脚本化交互（按文案找按钮，不依赖类名）：
 #   plans      -> 点开归档确认框（验证浮层里的文字对比度）
 #   records    -> 切到「本月」（验证区间切换真的重新取数）
-#   settings   -> 连点两下提醒间隔的加号（验证"最近的整十"步进，且连点会累加）
 #   timer      -> 打开计划选择器再点「新建计划」（验证内联表单，也顺带验证窄窗口下弹出层不顶出边界）
-#   personalize-> 先点禁用的「其他组件」（值必须不变），再选「图片」（值必须变成 image）
+#   personalize-> 先点禁用的「其他组件」（值必须不变），再选「图片」（值必须变成 image），
+#                 然后连点两下提醒间隔的加号（验证"最近的整十"步进、连点会累加）
+#
+# -Act 跑的是**用户真实的设置**（截图工具连的就是正式数据目录），所以 personalize
+# 那个动作结尾会把自己改过的两项改回去，并在报告里打印"还原: 图片/60"。
+# 提醒开关关着时步进器是禁用的，那一段会明确标成"（提醒开关关着，跳过）"而不是静默通过。
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views plans -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views records -Act
-powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views settings -Act
 powershell -ExecutionPolicy Bypass -File tools\shoot.ps1 -Views personalize,timer -Act
 ```
 
@@ -549,6 +554,11 @@ exe 的版本信息、产品名与清单来自 `build/config.yml` 的 `info:` �
 `wails3 task common:update:build-assets` 才会写进 `build/windows/info.json`
 与 `.syso`（下次构建生效）。图标来自 `build/appicon.png`（1024×1024），
 跑 `wails3 task common:generate:icons` 生成 `build/windows/icon.ico`。
+
+**版本号有两处，改的时候一起改**：`build/config.yml` 的 `info.version`（进 exe 的
+版本资源）与 `main.go` 的 `appVersion`（界面「关于」里显示的就是它，经
+`SettingsService.Version()` 给到前端）。两处不一致时，资源管理器里看到的版本
+和界面里看到的会对不上。
 
 注意：`.NET` 的 `FileVersionInfo` 读不出本项目的版本字符串（资源用的是 `lang=0` 的
 翻译块），但这不影响资源管理器——用 `VerQueryValue` 能正常读到 `ProductName` 等字段。

@@ -90,11 +90,12 @@ watchEffect(() => {
 
 const navItems: NavItem[] = [
 	{ key: "timer", label: "计时", icon: markRaw(IconPlay) },
-	{ key: "records", label: "记录", icon: markRaw(IconCalendar) },
+	// 计划在记录前面：先有计划，才谈得上"这段时长记到哪儿"。
 	{ key: "plans", label: "计划", icon: markRaw(IconPlan) },
+	{ key: "records", label: "记录", icon: markRaw(IconCalendar) },
 	{ key: "achievements", label: "成就", icon: markRaw(IconMedal) },
-	// 个性化放在设置前面：它管的是"长什么样"（主题、首页卡片），
-	// 而设置管的是"怎么工作"（提醒、托盘、数据）。先外貌后机制，读起来更顺。
+	// 个性化放在设置前面：它管的是"长什么样"（主题、计时页上有什么），
+	// 而设置管的是"怎么工作"（托盘、数据）。先外貌后机制，读起来更顺。
 	{ key: "personalize", label: "个性化", icon: markRaw(IconSparkle) },
 	{ key: "settings", label: "设置", icon: markRaw(IconSettings) },
 ];

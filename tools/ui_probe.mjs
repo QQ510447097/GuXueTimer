@@ -35,6 +35,22 @@ function parseArgs(argv) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 等前端渲染出导航栏（或引导页）。
+ *
+ * 调试端口比 Vue 挂载更早可用，所以要轮询到界面真的出现为止。
+ * 找不到就返回 false，由调用方报错——**不要**静默继续：抢跑会让每个视图都点空。
+ */
+async function waitForFrontend(cdp, timeoutMs = 20000) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const ok = await cdp.eval(`!!document.querySelector('[data-view], .onboarding')`);
+		if (ok) return true;
+		await sleep(200);
+	}
+	return false;
+}
+
 /** 轮询 /json/list，直到拿到页面 target 的调试地址。 */
 async function waitForTarget(port, timeoutMs = 30000) {
 	const deadline = Date.now() + timeoutMs;
@@ -232,21 +248,43 @@ const PRE_CAPTURE = {
 
 		const stepperBefore = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
 		const plus = document.querySelector('[data-step="1"]');
-		if (plus) {
+		// 提醒开关关着时步进器是禁用的（产品行为），这时点不动是**对的**——
+		// 如实标注出来，免得读报告的人以为断言通过了却什么也没验。
+		const stepperSkipped = !plus || plus.disabled === true;
+		if (!stepperSkipped) {
 			plus.click();
 			plus.click();
 			await wait(300);
 		}
 		const stepperAfter = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
+		const stepperNote = stepperSkipped ? '（提醒开关关着，跳过）' : '';
 
-		return \`\${disabledFlag}: \${before}->\${afterDisabled}; 图片: \${afterImage}; 步进: \${stepperBefore}->\${stepperAfter}\`;
+		/*
+		 * 收尾：把它改过的两项改回去。
+		 *
+		 * 这一跑动的是**用户真实的设置**（截图工具连的就是正式数据目录）。跑一次就把人家的
+		 * "底部区域"从留空改成图片、提醒间隔从 60 改成 80，是那种"跑完才发现"的脏改动。
+		 * 步进是对称的（+2 再 -2 回到原点），下拉则按记录下来的原值再选一次。
+		 */
+		const back = await openAndFind(before === 'image' ? '图片' : '留空');
+		if (back.hit) back.hit.click();
+		await wait(300);
+		const minus = document.querySelector('[data-step="-1"]');
+		if (!stepperSkipped && minus) {
+			minus.click();
+			minus.click();
+			await wait(300);
+		}
+		const restored = read();
+		const stepperRestored = Number(document.querySelector('[data-stepper-value]')?.dataset.stepperValue ?? -1);
+
+		return \`\${disabledFlag}: \${before}->\${afterDisabled}; 图片: \${afterImage}; 步进: \${stepperBefore}->\${stepperAfter}\${stepperNote}; 还原: \${restored}/\${stepperRestored}\`;
 	})()`,
 };
 
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	const target = await waitForTarget(args.port);
-
 	const ws = new WebSocket(target.webSocketDebuggerUrl);
 	await new Promise((resolve, reject) => {
 		ws.addEventListener("open", resolve, { once: true });
@@ -256,6 +294,21 @@ async function main() {
 	const cdp = new Cdp(ws);
 	await cdp.send("Page.enable");
 	await cdp.send("Runtime.enable");
+
+	/*
+	 * 等前端真的渲染出来再开始。
+	 *
+	 * 调试端口是 WebView2 一起来就能连的，比 Vue 挂载更早——抢在前面点击会点空
+	 * （导航项还不存在），而探针只会如实记一笔 clicked=false。看起来却很像
+	 * "点到了却切错页"（报告里的 activeView 是应用恢复出来的上一屏），
+	 * 排查时会往应用代码上找，白费半天。实测踩过一次。
+	 *
+	 * 等的是"导航栏或引导页出现了"：没有计划时外壳会换成引导页，那种情况也该放行。
+	 */
+	const ready = await waitForFrontend(cdp);
+	if (!ready) {
+		throw new Error("等不到前端渲染（既没有导航栏也没有引导页），页面可能白屏");
+	}
 
 	if (args.width > 0 && args.height > 0) {
 		// 用视口模拟代替"真的改窗口大小"：对 CSS 布局而言等价，而且完全确定。

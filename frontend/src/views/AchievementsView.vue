@@ -2,16 +2,18 @@
 import { computed } from "vue";
 import GlassPanel from "../components/GlassPanel.vue";
 import IconMedal from "../components/IconMedal.vue";
-import StatTile from "../components/StatTile.vue";
 import type { AchievementDTO } from "../../bindings/goxuetimer/models";
-import { formatDurationCN } from "../composables/format";
 import { useAchievements } from "../composables/useAchievements";
 
 /**
- * 成就页。
+ * 成就页：只有徽章网格。
  *
- * 徽章完全由历史记录推导（后端从 sessions 表算），所以这一页没有"刷新"按钮，
- * 也不需要本地缓存：记录一变（records:changed）就重拉一次。
+ * 汇总统计（累计时长、场次、天数、连续天数）在**记录页**——那类数字属于记录，
+ * 放在这里会让人以为"成就是靠刷统计得来的"。这一页只回答一个问题：
+ * 哪些拿到了、哪些还差多少（进度就在每张卡片自己的进度条上）。
+ *
+ * 徽章完全由历史记录推导（后端从 sessions 表算），所以没有"刷新"按钮、
+ * 也不做本地缓存：记录一变（records:changed）就重拉一次。
  *
  * 徽章图走 `frontend/public/badges/<id>.png`；没有素材时回退到内置的矢量奖章，
  * 所以现在这一页在没有美术资源的情况下也是完整的。加新成就的做法见 README。
@@ -50,32 +52,6 @@ function hasArt(id: string): boolean {
 
 <template>
 	<section class="achievements-view gx-col">
-		<GlassPanel padding="16px 18px">
-			<div class="head">
-				<div class="head-text">
-					<span class="head-title">
-						已解锁 {{ summary.unlocked }} / {{ summary.total }}
-					</span>
-					<span class="head-sub gx-faint">
-						累计专注 {{ formatDurationCN(summary.totalSec) }} ·
-						{{ summary.sessions }} 次 · {{ summary.activeDays }} 天有记录 ·
-						单次最长 {{ formatDurationCN(summary.longestSec) }}
-					</span>
-				</div>
-				<div class="tiles">
-					<StatTile label="当前连续" :value="`${summary.currentStreak} 天`" accent />
-					<StatTile label="最长连续" :value="`${summary.longestStreak} 天`" />
-				</div>
-			</div>
-
-			<p v-if="summary.lateNightCount > 0 || summary.earlyMorningCount > 0"
-				class="extra gx-faint">
-				<span v-if="summary.earlyMorningCount > 0">早起开始过 {{ summary.earlyMorningCount }} 次</span>
-				<span v-if="summary.earlyMorningCount > 0 && summary.lateNightCount > 0"> · </span>
-				<span v-if="summary.lateNightCount > 0">深夜开始过 {{ summary.lateNightCount }} 次</span>
-			</p>
-		</GlassPanel>
-
 		<div v-if="error" class="error">{{ error }}</div>
 
 		<div class="grid">
@@ -123,43 +99,6 @@ function hasArt(id: string): boolean {
 <style scoped>
 .achievements-view {
 	gap: var(--gx-gap);
-}
-
-.head {
-	display: flex;
-	align-items: center;
-	gap: 14px;
-	flex-wrap: wrap;
-	margin-top: 4px;
-}
-
-.head-text {
-	display: flex;
-	flex-direction: column;
-	gap: 3px;
-	flex: 1 1 auto;
-	min-width: 0;
-}
-
-.head-title {
-	font-size: 16px;
-	font-weight: 650;
-}
-
-.head-sub {
-	font-size: 12px;
-	line-height: 1.6;
-}
-
-.tiles {
-	display: flex;
-	gap: 10px;
-	flex: 0 0 auto;
-}
-
-.extra {
-	margin-top: 12px;
-	font-size: 12px;
 }
 
 .grid {

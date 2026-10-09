@@ -52,3 +52,13 @@ export function OpenDataDir(): $CancellablePromise<void> {
 export function Save($in: $models.SettingsDTO): $CancellablePromise<$models.SettingsDTO> {
     return $Call.ByID(2704157817, $in);
 }
+
+/**
+ * Version 返回给用户看的版本号（关于页显示）。
+ * 
+ * 由后端给而不是前端写死：exe 的版本信息来自 build/config.yml，
+ * 界面上再写一份就多了一个会漂移的地方。
+ */
+export function Version(): $CancellablePromise<string> {
+    return $Call.ByID(3666925488);
+}

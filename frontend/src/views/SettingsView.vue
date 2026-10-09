@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { NSwitch, useMessage } from "naive-ui";
 import * as SettingsService from "../../bindings/goxuetimer/settingsservice";
 import GlassPanel from "../components/GlassPanel.vue";
@@ -15,11 +15,10 @@ import { useSettings } from "../composables/useSettings";
  * 这个理由站不住：这里的每一项都是所见即所得的偏好（托盘行为、数据目录），
  * 看着不合适再改回来就是了，反倒是"改完忘了点保存、以为已经生效"更容易真的踩到。
  *
- * 主题搬去了「个性化」，休息提醒（开关与间隔）也搬去了那里——它决定计时页上
- * 是否出现提醒模块，与"长什么样、页面上有什么"是同一类事情。留下的是
- * 窗口行为 / 数据 / 关于。
+ * 主题与休息提醒都在「个性化」里——它们决定界面长什么样、计时页上有什么。
+ * 这一页只留 窗口行为 / 数据 / 关于。
  */
-const { settings, saving, loadError, saveError, patch } = useSettings();
+const { settings, loadError, saveError, patch } = useSettings();
 const message = useMessage();
 
 /** 开关类设置：动一下就提交，失败已经在 saveError 里。 */
@@ -38,6 +37,23 @@ void SettingsService.DataDir()
 	.catch(() => {
 		dataPath.value = "（读取数据目录失败）";
 	});
+
+// 版本号由后端给：唯一真相是 main.go 的 appVersion，exe 的版本信息在 build/config.yml。
+const version = ref("");
+void SettingsService.Version()
+	.then((v) => {
+		version.value = v || "";
+	})
+	.catch(() => {
+		version.value = "";
+	});
+
+/** 版本与技术栈一行显示；拿不到版本号时不留下一个孤零零的 "v"。 */
+const versionLine = computed(() =>
+	[version.value ? `v${version.value}` : "", "Go + Wails v3 + Vue 3"]
+		.filter(Boolean)
+		.join(" · "),
+);
 
 async function openDataDir(): Promise<void> {
 	if (openingDir.value) return;
@@ -89,16 +105,14 @@ async function openDataDir(): Promise<void> {
 			<p class="gx-section-title">关于</p>
 			<div class="about">
 				<span class="about-name">孤雪凝时</span>
-				<span class="gx-muted">一个把专注时间记下来的小工具：计时、记录、计划与休息提醒。</span>
-				<span class="about-stack gx-mono gx-faint">Go + Wails v3 + Vue 3</span>
+				<span class="gx-muted">雪落无声，专注有痕。一个记录时间足迹的工具。</span>
+				<span class="about-stack gx-mono gx-faint">{{ versionLine }}</span>
 			</div>
 		</GlassPanel>
 
-		<!-- 没有保存按钮，所以这里只留一行状态：正在写、写失败、或提示"改了就算数" -->
-		<div class="footer">
-			<p v-if="loadError" class="error">{{ loadError }}</p>
-			<p v-else-if="saveError" class="error">{{ saveError }}</p>
-			<p v-else class="ok gx-faint">{{ saving ? "保存中…" : "改动会立即生效" }}</p>
+		<!-- 没有保存按钮，所以这里只在真的出错时说话：顺利保存是理所当然的，不必报喜 -->
+		<div v-if="loadError || saveError" class="footer">
+			<p class="error">{{ loadError || saveError }}</p>
 		</div>
 	</section>
 </template>
@@ -177,10 +191,6 @@ async function openDataDir(): Promise<void> {
 	flex-direction: column;
 	gap: 8px;
 	padding: 2px 2px 4px;
-}
-
-.ok {
-	font-size: 12.5px;
 }
 
 .error {

@@ -27,6 +27,14 @@ func (s *SettingsService) DataDir() (string, error) {
 	return s.b.dataDir()
 }
 
+// Version 返回给用户看的版本号（关于页显示）。
+//
+// 由后端给而不是前端写死：exe 的版本信息来自 build/config.yml，
+// 界面上再写一份就多了一个会漂移的地方。
+func (s *SettingsService) Version() string {
+	return appVersion
+}
+
 // OpenDataDir 在资源管理器里打开数据目录。
 //
 // 用 explorer.exe 而不是 Wails 的 API：v3 beta.27 没有导出打开文件管理器的

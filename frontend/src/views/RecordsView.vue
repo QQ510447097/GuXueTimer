@@ -1,24 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from "vue";
-import { useMessage } from "naive-ui";
+import { computed, onMounted } from "vue";
 import BarChart from "../components/BarChart.vue";
 import GlassPanel from "../components/GlassPanel.vue";
 import HeatmapCalendar from "../components/HeatmapCalendar.vue";
 import PlanChip from "../components/PlanChip.vue";
-import SessionRow from "../components/SessionRow.vue";
-import { dayLabel, formatDurationCN, monthLabel, shortDayLabel, todayKey } from "../composables/format";
+import StatTile from "../components/StatTile.vue";
+import { formatDurationCN, monthLabel, shortDayLabel, todayKey } from "../composables/format";
+import { useAchievements } from "../composables/useAchievements";
 import { usePlans } from "../composables/usePlans";
-import { refreshRecords, useRecords } from "../composables/useRecords";
 import { useStats, type StatsRange } from "../composables/useStats";
 
 /**
  * 记录页。
  *
- * "选中哪天 / 筛哪个计划 / 看多长的区间"全在 useStats 里；这里只负责
- * 按那个选择取当日明细并把结果画出来。两处各存一份选择，
- * 必然出现「图是近七天、列表却是别的日子」这种自相矛盾的画面。
+ * 三块：区间工具栏（本周/本月 + 计划筛选）、柱状图 + 月历、累计统计。
+ *
+ * "看多长的区间 / 筛哪个计划 / 月历翻到哪个月"全在 useStats 里。两处各存一份选择，
+ * 必然出现「图是本周、日历却是别的月份」这种自相矛盾的画面。
+ *
+ * 累计统计（累计时长、场次、天数、单次最长、连续天数）来自**成就服务**：
+ * 那几个数字本来就是它为了评价徽章而算的，同一份聚合没必要在记录服务里再写一遍。
+ * 它只读，不参与成就判定——成就页现在只有徽章网格，统计归记录页。
  */
-const { plans, nameOf, colorOf } = usePlans();
+const { plans } = usePlans();
 const {
 	range,
 	setRange,
@@ -37,8 +41,8 @@ const {
 	error: statsError,
 	refresh: refreshStats,
 } = useStats();
-const { sessions, summary, loading: dayLoading, error: dayError, stale, remove } = useRecords();
-const message = useMessage();
+// lifetime 就是"历史累计"：起这个名字是因为统计口径是全部记录，不是本周/本月。
+const { summary: lifetime, error: lifetimeError, refresh: refreshLifetime } = useAchievements();
 
 const ranges: { key: StatsRange; label: string }[] = [
 	{ key: "week", label: "本周" },
@@ -55,44 +59,10 @@ const periodLabel = computed(() => {
 // 渲染期取一次就够：一直开着跨过午夜属于边角情况，那时后端会用空串自行判定今天。
 const today = todayKey();
 
-// 换"选中日"只影响当日明细；区间与月份由 useStats 自己的 watcher 负责重取。
-watch([selectedDate, filterPlanId], () => {
-	void refreshRecords();
-});
-
 onMounted(() => {
-	void refreshRecords();
 	void refreshStats();
+	void refreshLifetime();
 });
-
-const dayTotalSec = computed(() => summary.value?.totalSec ?? 0);
-const dayCount = computed(() => summary.value?.count ?? 0);
-
-/** 当日按计划拆分，按时长降序：这一栏看的是"时间花在哪了"。 */
-const breakdown = computed(() => {
-	const byPlan = new Map<number, number>();
-	for (const session of sessions.value) {
-		byPlan.set(session.planId, (byPlan.get(session.planId) ?? 0) + session.durationSec);
-	}
-	let total = 0;
-	for (const sec of byPlan.values()) total += sec;
-	const rows = Array.from(byPlan.entries()).map(([planId, sec]) => ({
-		planId,
-		sec,
-		name: nameOf(planId),
-		color: colorOf(planId),
-	}));
-	rows.sort((a, b) => b.sec - a.sec);
-	return { rows, total };
-});
-
-const isEmpty = computed(() => !stale.value && !dayLoading.value && sessions.value.length === 0);
-
-async function onRemove(id: number): Promise<void> {
-	const ok = await remove(id);
-	if (ok) message.success("已删除这条记录");
-	else message.error(dayError.value || "删除失败");
-}
 </script>
 
 <template>
@@ -140,7 +110,9 @@ async function onRemove(id: number): Promise<void> {
 			</div>
 		</GlassPanel>
 
-		<GlassPanel padding="12px 15px">
+		<!-- 顶部 20px 而不是 14px：最高的那条刻度线就在绘图区顶端，它的文字有一半在
+		     绘图区之上，贴着面板边缘会显得"顶到头了" -->
+		<GlassPanel padding="20px 15px 14px">
 			<BarChart :points="chartPoints" />
 
 			<div class="divider"></div>
@@ -153,54 +125,39 @@ async function onRemove(id: number): Promise<void> {
 				@update:month="setMonth"
 				@update:selected="setSelectedDate"
 			/>
+
+			<p v-if="statsError" class="error">{{ statsError }}</p>
 		</GlassPanel>
 
-		<GlassPanel padding="12px 15px">
-			<div class="day-head">
-				<div class="day-titles">
-					<span class="day-title">{{ dayLabel(selectedDate) }}</span>
+		<!-- 累计统计：历史全部记录的口径（不是本周/本月）。
+		     不加"累计"小标题——下面那行的"累计专注"已经说清了，两个"累计"叠着看很啰嗦 -->
+		<GlassPanel padding="14px 16px">
+			<div class="totals">
+				<div class="totals-text">
+					<span class="totals-main gx-tabular">
+						累计专注 {{ formatDurationCN(lifetime.totalSec) }}
+					</span>
 					<span class="gx-faint">
-						共 {{ formatDurationCN(dayTotalSec) }} · {{ dayCount }} 次
+						{{ lifetime.sessions }} 次 · {{ lifetime.activeDays }} 天有记录 ·
+						单次最长 {{ formatDurationCN(lifetime.longestSec) }}
+					</span>
+					<span v-if="lifetime.earlyMorningCount || lifetime.lateNightCount" class="gx-faint">
+						<span v-if="lifetime.earlyMorningCount">
+							早起开始过 {{ lifetime.earlyMorningCount }} 次
+						</span>
+						<span v-if="lifetime.earlyMorningCount && lifetime.lateNightCount"> · </span>
+						<span v-if="lifetime.lateNightCount">
+							深夜开始过 {{ lifetime.lateNightCount }} 次
+						</span>
 					</span>
 				</div>
-				<span class="gx-spacer"></span>
-				<span v-if="selectedDate === today" class="today-tag">今天</span>
-			</div>
-
-			<div v-if="breakdown.rows.length" class="stack" aria-hidden="true">
-				<span
-					v-for="row in breakdown.rows"
-					:key="row.planId"
-					class="seg"
-					:style="{ flexGrow: row.sec, background: row.color }"
-				></span>
-			</div>
-
-			<div v-if="breakdown.rows.length" class="legend">
-				<div v-for="row in breakdown.rows" :key="row.planId" class="legend-row">
-					<span class="gx-dot" :style="{ background: row.color, color: row.color }"></span>
-					<span class="legend-name gx-truncate">{{ row.name }}</span>
-					<span class="gx-spacer"></span>
-					<span class="legend-sec gx-mono gx-tabular">{{ formatDurationCN(row.sec) }}</span>
+				<div class="tiles">
+					<StatTile label="当前连续" :value="`${lifetime.currentStreak} 天`" accent />
+					<StatTile label="最长连续" :value="`${lifetime.longestStreak} 天`" />
 				</div>
 			</div>
 
-			<div class="list">
-				<SessionRow
-					v-for="session in sessions"
-					:key="session.id"
-					:session="session"
-					@remove="onRemove"
-				/>
-			</div>
-
-			<div v-if="isEmpty" class="empty">
-				<p class="empty-title">这一天还没有记录</p>
-				<p class="gx-faint">回到「计时」开始一次学习</p>
-			</div>
-
-			<p v-if="dayError" class="error">{{ dayError }}</p>
-			<p v-if="statsError" class="error">{{ statsError }}</p>
+			<p v-if="lifetimeError" class="error">{{ lifetimeError }}</p>
 		</GlassPanel>
 	</section>
 </template>
@@ -278,90 +235,37 @@ async function onRemove(id: number): Promise<void> {
 	background: var(--gx-line);
 }
 
-.day-head {
+.totals {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	margin-bottom: 10px;
-}
-
-.day-titles {
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-	min-width: 0;
-}
-
-.day-title {
-	font-size: 14.5px;
-	font-weight: 650;
-}
-
-.today-tag {
-	flex: 0 0 auto;
-	padding: 1px 9px;
-	border-radius: var(--gx-r-pill);
-	background: var(--gx-accent-soft);
-	color: var(--gx-accent);
-	font-size: 11px;
-}
-
-.stack {
-	display: flex;
-	height: 8px;
-	border-radius: var(--gx-r-pill);
-	overflow: hidden;
-	background: var(--gx-track);
-}
-
-.seg {
-	flex: 1 1 0;
-	min-width: 3px;
-}
-
-.legend {
-	display: flex;
-	flex-direction: column;
-	gap: 5px;
+	gap: 14px;
+	flex-wrap: wrap;
 	margin-top: 10px;
 }
 
-.legend-row {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
-	font-size: 12.5px;
-}
-
-.legend-name {
-	min-width: 0;
-}
-
-.legend-sec {
-	color: var(--gx-text-2);
-	white-space: nowrap;
-}
-
-.list {
+.totals-text {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
-	margin-top: 10px;
-}
-
-.empty {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
 	gap: 2px;
-	padding: 26px 10px 18px;
-	text-align: center;
+	flex: 1 1 auto;
+	min-width: 0;
 }
 
-.empty-title {
-	font-size: 13.5px;
-	color: var(--gx-text-2);
+.totals-main {
+	font-size: 16px;
+	font-weight: 650;
+	color: var(--gx-text);
+}
+
+.totals-text .gx-faint {
+	font-size: 12px;
+	line-height: 1.6;
+}
+
+.tiles {
+	display: flex;
+	gap: 10px;
+	flex: 0 0 auto;
 }
 
 .error {
