@@ -45,10 +45,12 @@ def default_db_path() -> str:
 
 
 def check_schema(conn: sqlite3.Connection) -> None:
+    # 只要求"不低于 v2"：v3 只是多了三张进度表，直接写 sessions 照样能用
+    # （clear() 会把账清掉，让应用启动时重建）。写死等号会让每次加迁移都得改这里。
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version != 2:
+    if version < 2:
         raise SystemExit(
-            f"这个库的 user_version = {version}，不是 v2。"
+            f"这个库的 user_version = {version}，太旧了。"
             "先启动一次应用让它完成迁移，再来灌数据。"
         )
     cols = [row[1] for row in conn.execute("PRAGMA table_info(sessions)")]
@@ -61,6 +63,16 @@ def clear(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM plans")
     conn.execute("UPDATE timer_state SET state = 'idle', started_at = '', "
                  "last_resumed_at = '', accumulated_sec = 0, plan_id = 0 WHERE id = 1")
+    # 等级与经验是 stored 的账，而这个脚本是**直接写 sessions**的，绕过了
+    # "结束并保存"时的结算。所以把账清空，让应用下次启动按记录回放重建
+    # （见 main 包里 backfillProgressIfNeeded 的说明）。
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    for table in ("progress", "qualifying_days", "achievement_state"):
+        if table in tables:
+            conn.execute(f"DELETE FROM {table}")
+    if "progress" in tables:
+        conn.execute("INSERT OR IGNORE INTO progress(id, level) VALUES(1, 1)")
 
 
 def seed(conn: sqlite3.Connection, days: int) -> dict:

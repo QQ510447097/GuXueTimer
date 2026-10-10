@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"unicode"
@@ -114,6 +115,11 @@ func (s *PlansService) Create(name string, color string) (PlanDTO, error) {
 	id, err := s.b.db.InsertPlan(clean, canonicalPlanColor(color), s.b.clock().Format(layoutRecord))
 	if err != nil {
 		return PlanDTO{}, err
+	}
+	// 「千里之行，始于足下」：第一次建计划就记下达成时间（只写一次，之后不改）。
+	// 失败不影响建计划本身——成就记录不该挡住用户干活。
+	if err := s.b.markFirstPlan(); err != nil {
+		slog.Warn("记录首次建计划失败", "err", err)
 	}
 
 	// 第一个计划直接设为当前，省掉用户再点一次"设为当前"。

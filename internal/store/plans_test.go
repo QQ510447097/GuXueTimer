@@ -43,10 +43,11 @@ func buildV1DB(t *testing.T, path string) {
 	}
 }
 
-// v1 -> v2 的迁移必须一条旧记录都不丢，并且旧记录显示为"未分类"。
+// v1 -> 最新版的迁移必须一条旧记录都不丢，并且旧记录显示为"未分类"。
 //
 // 这是整个数据层最要紧的一个用例：迁移写错了，用户的历史就没了。
-func TestMigrate_V1ToV2PreservesData(t *testing.T) {
+// 断言的是"迁移到当前版本"而不是某个写死的中间版本，这样以后再加 v4 不必改它。
+func TestMigrate_V1PreservesData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	buildV1DB(t, path)
 
@@ -60,8 +61,8 @@ func TestMigrate_V1ToV2PreservesData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion() 失败: %v", err)
 	}
-	if version != 2 {
-		t.Errorf("user_version = %d, 期望 2", version)
+	if version != schemaVersion {
+		t.Errorf("user_version = %d, 期望 %d", version, schemaVersion)
 	}
 
 	// 旧记录还在，而且被归为未分类（plan_id 为 NULL -> 0）。

@@ -166,6 +166,11 @@ const PROBE = `(() => {
 		panelCount: document.querySelectorAll('.gx-glass').length,
 		themeClass: document.querySelector('.theme-dark') ? 'dark' : 'light',
 		bodyBg: getComputedStyle(document.body).backgroundColor,
+		// 等级条上的三个数字（成就页挂的 data-* 钩子）。等级是后端按存下来的账算的，
+		// 除了截图"看着像"，还需要一个能对着数据库核对的读数。
+		level: Number(document.querySelector('[data-level]')?.dataset.level ?? -1),
+		levelXp: Number(document.querySelector('[data-xp]')?.dataset.xp ?? -1),
+		levelRate: Number(document.querySelector('[data-rate]')?.dataset.rate ?? -1),
 		viewText: (document.querySelector('main')?.innerText ?? '').slice(0, 120),
 	};
 })()`;

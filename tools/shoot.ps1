@@ -197,6 +197,12 @@ foreach ($v in $report.views) {
     $scrollNote = if ($v.contentOverflowY) { '要滚动' } else { '一屏放得下' }
     Write-Host "         内容区 $($v.contentClient) 高 / 实际 $($v.contentScroll) 高（$scrollNote）"
     if ($v.barPoints -ge 0) { Write-Host "         柱状图数据点 $($v.barPoints) 根" }
+    if ($v.level -ge 0) {
+        # 经验以"十分之一经验"的整数传来，显示成一位小数；用它能对着数据库核对。
+        $xp = '{0:N1}' -f ($v.levelXp / 10)
+        $rate = '{0:N1}' -f ($v.levelRate / 10)
+        Write-Host "         等级 $($v.level) / 经验 $xp / 每小时 +$rate"
+    }
     if ($v.bottom) { Write-Host "         底部区域模式 $($v.bottom)（面板 $($v.bottomBox)）" }
     Write-Host "         主题 $($v.themeClass) / 玻璃面板 $($v.panelCount) 个 / backdrop-filter: $($v.backdropFilter)"
     if ($null -ne $v.acted) { Write-Host "         截图前交互: $($v.acted)" }

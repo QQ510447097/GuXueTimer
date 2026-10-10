@@ -15,6 +15,7 @@ const empty = (): AchievementsDTO => ({
 	unlocked: 0,
 	total: 0,
 	totalSec: 0,
+	todaySec: 0,
 	longestSec: 0,
 	sessions: 0,
 	activeDays: 0,
@@ -23,6 +24,17 @@ const empty = (): AchievementsDTO => ({
 	lateNightCount: 0,
 	earlyMorningCount: 0,
 	planCount: 0,
+	qualifyingDays: 0,
+	level: {
+		level: 1,
+		xpTenths: 0,
+		intoTenths: 0,
+		needTenths: 1000,
+		rateTenths: 10,
+		hoursCounted: 0,
+		carrySec: 0,
+		medals: { week: 0, month: 0, quarter: 0, year: 0 },
+	},
 	items: [],
 });
 

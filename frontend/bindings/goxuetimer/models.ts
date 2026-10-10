@@ -3,6 +3,11 @@
 
 /**
  * AchievementDTO 是一个成就的状态。
+ * 
+ * 三种类别（kind）用同一份结构，靠 kind 决定前端怎么画：
+ *   - once：unlocked / progress / target（progress 按 definition 的 Unit）
+ *   - cycle：count（已达成次数）、lastAt（上次达成）、progress/target = 本轮达标天数 / 周期
+ *   - daily：count（达标天数）、lastAt、progress/target = 今天已学秒数 / 3600
  */
 export interface AchievementDTO {
     "id": string;
@@ -10,19 +15,49 @@ export interface AchievementDTO {
     "description": string;
 
     /**
-     * bronze | silver | gold
+     * once | cycle | daily
      */
-    "tier": string;
+    "kind": string;
     "unit": string;
     "unlocked": boolean;
     "progress": number;
     "target": number;
+
+    /**
+     * Count 是达成次数（循环=轮数、每日=达标天数）。
+     */
+    "count": number;
+
+    /**
+     * LastAt 是上次达成日期；从未达成为空串。
+     */
+    "lastAt": string;
+
+    /**
+     * AchievedAt 是单次成就的达成时间；未达成为空串。
+     */
+    "achievedAt": string;
+
+    /**
+     * TodayDone 只对每日成就意义：今天是否已经达标。
+     */
+    "todayDone": boolean;
+
+    /**
+     * Medal 是循环成就达成一次发的奖章（bronze|silver|gold|ruby）；其它类别为空。
+     */
+    "medal": string;
+
+    /**
+     * RewardTenths 是达成一次的经验奖励（十分之一经验）。
+     */
+    "rewardTenths": number;
 }
 
 /**
  * AchievementsDTO 是成就页需要的全部数据。
  * 
- * 顶部那几个汇总数字与成就本身来自同一次统计，所以不可能出现
+ * 顶部那几个汇总数字与下面各条来自同一次读取，所以不可能出现
  * "累计 9.5 小时但十小时成就已解锁"这种自相矛盾的画面。
  */
 export interface AchievementsDTO {
@@ -33,6 +68,11 @@ export interface AchievementsDTO {
      * TotalSec 是累计时长（秒）。前端自己决定显示成"12 小时 34 分"还是别的。
      */
     "totalSec": number;
+
+    /**
+     * TodaySec 是今天已落库的时长（秒）；每日成就的进度条用它。
+     */
+    "todaySec": number;
 
     /**
      * LongestSec 是单次最长时长。
@@ -51,7 +91,7 @@ export interface AchievementsDTO {
     "currentStreak": number;
 
     /**
-     * LongestStreak 是历史最长连续天数，也是"三日不辍"的判据。
+     * LongestStreak 是历史最长连续天数。
      */
     "longestStreak": number;
 
@@ -65,6 +105,20 @@ export interface AchievementsDTO {
      * PlanCount 是有记录的计划数。
      */
     "planCount": number;
+
+    /**
+     * QualifyingDays 是"达标日"总数（当天满 1 小时），循环成就的轮数由它推出来。
+     */
+    "qualifyingDays": number;
+
+    /**
+     * Level 是等级与经验。
+     */
+    "level": LevelDTO;
+
+    /**
+     * Items 是全部成就，顺序与 internal/achievements.All 一致。
+     */
     "items": AchievementDTO[] | null;
 }
 
@@ -96,6 +150,49 @@ export interface DaySummaryDTO {
     "count": number;
     "firstStart": string;
     "lastEnd": string;
+}
+
+/**
+ * LevelDTO 是等级条需要的一切。
+ * 
+ * 经验一律用**十分之一经验**的整数传输（见 internal/achievements 的说明），
+ * 前端只负责显示成一位小数。
+ */
+export interface LevelDTO {
+    "level": number;
+
+    /**
+     * XpTenths 是累计经验；IntoTenths/NeedTenths 是当前等级内的进度与升级所需。
+     */
+    "xpTenths": number;
+    "intoTenths": number;
+    "needTenths": number;
+
+    /**
+     * RateTenths 是当前"每小时学习"能拿到的经验（含奖章加成）。
+     */
+    "rateTenths": number;
+
+    /**
+     * HoursCounted 是已经折算过经验的整小时数（成长经验的来源）。
+     */
+    "hoursCounted": number;
+
+    /**
+     * CarrySec 是没凑满一小时的零头，成长卡片的进度条用它。
+     */
+    "carrySec": number;
+    "medals": MedalCountsDTO;
+}
+
+/**
+ * MedalCountsDTO 是四类奖章的累计数量。
+ */
+export interface MedalCountsDTO {
+    "week": number;
+    "month": number;
+    "quarter": number;
+    "year": number;
 }
 
 /**

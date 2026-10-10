@@ -80,6 +80,29 @@ def inspect(db_path: str) -> int:
         plans = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
         print(f"plans={plans}")
 
+        # v3 的账：老库升级后应当由"按记录回放"回填过。
+        # 表可能还不存在（更早版本留下的库），所以先看表在不在。
+        has_progress = any(t == "progress" for t in tables)
+        print(f"has_progress_table={1 if has_progress else 0}")
+        if has_progress:
+            row = conn.execute(
+                "SELECT xp_tenths, carry_sec, level, medals_week, medals_month, "
+                "medals_quarter, medals_year FROM progress WHERE id = 1"
+            ).fetchone()
+            if row:
+                print(f"progress_xp_tenths={row[0]}")
+                print(f"progress_carry_sec={row[1]}")
+                print(f"progress_level={row[2]}")
+                print(f"progress_medals={row[3]},{row[4]},{row[5]},{row[6]}")
+            else:
+                print("progress_xp_tenths=")
+        if any(t == "qualifying_days" for t in tables):
+            n = conn.execute("SELECT COUNT(*) FROM qualifying_days").fetchone()[0]
+            print(f"qualifying_days={n}")
+        if any(t == "achievement_state" for t in tables):
+            n = conn.execute("SELECT COUNT(*) FROM achievement_state").fetchone()[0]
+            print(f"achievement_states={n}")
+
         # 最新一条记录：迁移场景看它还在不在、归属对不对。
         latest = conn.execute(
             "SELECT duration_sec, note, source, plan_id FROM sessions "

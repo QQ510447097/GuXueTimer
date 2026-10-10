@@ -139,7 +139,8 @@ func (s *Service) recoverLocked() (RecoveryOutcome, string, error) {
 			PlanID: s.snap.PlanID,
 		}
 		// FinishSession 是单事务的：要么记录与状态一起落库，要么都不动。
-		id, err := s.st.FinishSession(rec, store.TimerStateRow{State: string(StateIdle)})
+		// 恢复出来的这段同样要并进经验账（它是一条真实的记录）。
+		id, err := s.st.FinishSession(rec, store.TimerStateRow{State: string(StateIdle)}, s.settle)
 		if err != nil {
 			return RecoveryOutcome{Action: RecoveryNone, Snapshot: s.snap}, "", err
 		}

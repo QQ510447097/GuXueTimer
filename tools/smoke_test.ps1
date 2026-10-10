@@ -228,9 +228,10 @@ if (-not $script:python) {
 } elseif (Test-Path $dbPath) {
     $info = Get-DbInfo
 
-    Assert-That ($info['user_version'] -eq '2') "schema 版本 = 2（实际 '$($info['user_version'])'）"
+    Assert-That ($info['user_version'] -eq '3') "schema 版本 = 3（实际 '$($info['user_version'])'）"
 
-    foreach ($t in @('sessions', 'settings', 'timer_state', 'plans')) {
+    # 后三张是 v3 的"等级与经验"三件套：账（progress）、达标日账本、成就状态。
+    foreach ($t in @('sessions', 'settings', 'timer_state', 'plans', 'progress', 'qualifying_days', 'achievement_state')) {
         Assert-That (($info['tables'] -split ',') -contains $t) "存在表 $t"
     }
 
@@ -390,9 +391,16 @@ if ($script:python) {
     Stop-App
 
     $after = Get-DbInfo
-    Assert-That ($after['user_version'] -eq '2') "迁移后 schema 版本 = 2（实际 '$($after['user_version'])'）"
+    Assert-That ($after['user_version'] -eq '3') "迁移后 schema 版本 = 3（实际 '$($after['user_version'])'）"
     Assert-That ($after['sessions_has_plan_id'] -eq '1') '迁移后 sessions 有 plan_id 列'
     Assert-That (($after['tables'] -split ',') -contains 'plans') '迁移后有了 plans 表'
+
+    # v3 的账要由"按记录回放"回填：这条 1800 秒的旧记录不够 1 小时，
+    # 所以零头正好是 1800 秒、经验 0、等级 1，也还没有达标日。
+    Assert-That ($after['has_progress_table'] -eq '1') '迁移后有了 progress 表'
+    Assert-That ($after['progress_carry_sec'] -eq '1800') "旧记录被回填进零头（实际 '$($after['progress_carry_sec'])'）"
+    Assert-That ($after['progress_level'] -eq '1') "回填后等级 = 1（实际 '$($after['progress_level'])'）"
+    Assert-That ($after['qualifying_days'] -eq '0') "半小时的记录不该算达标日（实际 '$($after['qualifying_days'])'）"
 
     # 旧记录必须还在，并且归为"未分类"。
     Assert-That ($after['last_session_sec'] -eq '1800') "旧记录时长保住了（实际 '$($after['last_session_sec'])'）"

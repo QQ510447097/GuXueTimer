@@ -124,6 +124,12 @@ func newBackend(db *store.DB, clk func() time.Time) (*backend, error) {
 		settings: cfg,
 		shutdown: make(chan struct{}),
 	}
+	// 计时器负责"写记录"，经验账由 backend 的结算函数在同一事务里跟着更新。
+	timerSvc.SetSettle(b.settleProgress)
+	// 老库升级到 v3 之后账是空的：按历史记录回放一次补上初值。
+	if err := b.backfillProgressIfNeeded(); err != nil {
+		return nil, err
+	}
 	return b, nil
 }
 

@@ -161,11 +161,50 @@ func (d *DB) DeleteSession(id int64) error {
 	return nil
 }
 
-// FinishSession 在一个事务里写入学习记录并同时把计时状态复位。
+// SettleInput 是"把一次会话并进进度"的输入。
 //
-// 必须原子：拆成 INSERT + UPDATE 两条语句会产生「记录已落库但状态没复位」的
-// 中间态，进程此时崩溃的话，下次启动的恢复逻辑会把同一段时长再结算一次。
-func (d *DB) FinishSession(sess SessionRow, idle TimerStateRow) (int64, error) {
+// 全部由 store 在**同一个事务里**读好传进来，所以规则那一层是纯函数：
+// 它只需要这几个数字就能算出新进度，不必自己去查库（也就没法在事务中间读脏数据）。
+type SettleInput struct {
+	// Progress 是结算前的进度。
+	Progress ProgressRow
+	// Day 是这次会话归属的日期（YYYY-MM-DD），即 started_at 的前 10 个字符。
+	Day string
+	// DayQualified 表示这天是否已经记进达标账本。
+	DayQualified bool
+	// DayTotalSec 是这天（含刚写入的这条记录）的总时长。
+	DayTotalSec int64
+	// TotalSec 是全部历史（含刚写入的这条记录）的总时长，
+	// 单次成就"累计 N 小时"的越线判定要用它。
+	TotalSec int64
+	// DurationSec 是刚写入这条记录的时长。
+	DurationSec int64
+	// QualifyingDays 是**这次之前**账本里的达标日总数。
+	QualifyingDays int
+	// States 是各成就的当前状态（快照，规则那一层只看不写）。
+	States map[string]AchievementStateRow
+	// Now 是当前时刻（RFC3339），写"达成时间"用。
+	Now string
+}
+
+// SettleOutcome 是结算结果。调用方把新进度与需要落库的状态一并返回，store 只负责写。
+type SettleOutcome struct {
+	Progress ProgressRow
+	// QualifyDay 非 nil 表示这天首次达标，要记进账本。
+	QualifyDay *QualifyingDay
+	// States 是需要写回的成就状态（达成次数 / 上次达成 / 单次达成时间）。
+	States []AchievementStateRow
+}
+
+// SettleFunc 是规则那一层注入的结算函数。为 nil 时表示这次不结算（例如测试）。
+type SettleFunc func(in SettleInput) (SettleOutcome, error)
+
+// FinishSession 在一个事务里写入学习记录、复位计时状态，并把这次会话并进进度。
+//
+// 必须原子：拆开会产生「记录已落库但状态没复位」的中间态，进程此时崩溃的话，
+// 下次启动的恢复逻辑会把同一段时长再结算一次。进度也不能拆出去——
+// 拆开后崩溃会漏发经验，而进度是只增不减的账，漏了就补不回来。
+func (d *DB) FinishSession(sess SessionRow, idle TimerStateRow, settle SettleFunc) (int64, error) {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("开启结算事务失败: %w", err)
@@ -195,10 +234,146 @@ func (d *DB) FinishSession(sess SessionRow, idle TimerStateRow) (int64, error) {
 		return 0, fmt.Errorf("复位计时状态失败: %w", err)
 	}
 
+	if settle != nil {
+		if err := settleInTx(tx, sess, settle); err != nil {
+			return 0, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("提交结算事务失败: %w", err)
 	}
 	return id, nil
+}
+
+// settleInTx 在事务里读齐结算需要的数字、调用规则函数、写回结果。
+//
+// 规则（倍率、门槛、周期）一概不在这层：这里只做"读—问—写"，
+// 免得同一套规则散在 SQL 与 Go 两处。
+func settleInTx(tx *sql.Tx, sess SessionRow, settle SettleFunc) error {
+	var cur ProgressRow
+	if err := tx.QueryRow(
+		`SELECT xp_tenths, carry_sec, level, medals_week, medals_month, medals_quarter, medals_year
+		   FROM progress WHERE id = 1`,
+	).Scan(
+		&cur.XpTenths, &cur.CarrySec, &cur.Level,
+		&cur.MedalsWeek, &cur.MedalsMonth, &cur.MedalsQuarter, &cur.MedalsYear,
+	); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("读取进度失败: %w", err)
+	}
+	if cur.Level == 0 {
+		cur.Level = 1
+	}
+
+	day := ""
+	if len(sess.StartedAt) >= 10 {
+		day = sess.StartedAt[:10]
+	}
+
+	var dayTotal int64
+	if day != "" {
+		if err := tx.QueryRow(
+			`SELECT COALESCE(SUM(duration_sec), 0) FROM sessions WHERE substr(started_at, 1, 10) = ?`,
+			day,
+		).Scan(&dayTotal); err != nil {
+			return fmt.Errorf("统计当天时长失败: %w", err)
+		}
+	}
+
+	var qualified int
+	dayQualified := false
+	if day != "" {
+		err := tx.QueryRow(`SELECT 1 FROM qualifying_days WHERE date = ?`, day).Scan(&qualified)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("查询达标日失败: %w", err)
+		}
+		dayQualified = err == nil
+	}
+
+	var total int64
+	if err := tx.QueryRow(`SELECT COALESCE(SUM(duration_sec), 0) FROM sessions`).Scan(&total); err != nil {
+		return fmt.Errorf("统计累计时长失败: %w", err)
+	}
+
+	var qualifyingCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM qualifying_days`).Scan(&qualifyingCount); err != nil {
+		return fmt.Errorf("统计达标日失败: %w", err)
+	}
+
+	states, err := achievementStatesInTx(tx)
+	if err != nil {
+		return err
+	}
+
+	out, err := settle(SettleInput{
+		Progress:       cur,
+		Day:            day,
+		DayQualified:   dayQualified,
+		DayTotalSec:    dayTotal,
+		TotalSec:       total,
+		DurationSec:    sess.DurationSec,
+		QualifyingDays: qualifyingCount,
+		States:         states,
+		Now:            sess.CreatedAt,
+	})
+	if err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE progress
+		    SET xp_tenths = ?, carry_sec = ?, level = ?,
+		        medals_week = ?, medals_month = ?, medals_quarter = ?, medals_year = ?
+		  WHERE id = 1`,
+		out.Progress.XpTenths, out.Progress.CarrySec, out.Progress.Level,
+		out.Progress.MedalsWeek, out.Progress.MedalsMonth, out.Progress.MedalsQuarter, out.Progress.MedalsYear,
+	); err != nil {
+		return fmt.Errorf("写入进度失败: %w", err)
+	}
+
+	if out.QualifyDay != nil {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO qualifying_days(date, sec) VALUES(?, ?)`,
+			out.QualifyDay.Date, out.QualifyDay.Sec,
+		); err != nil {
+			return fmt.Errorf("记录达标日失败: %w", err)
+		}
+	}
+
+	for _, st := range out.States {
+		if _, err := tx.Exec(
+			`INSERT INTO achievement_state(id, count, last_at, achieved_at) VALUES(?, ?, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET count = excluded.count,
+			                               last_at = excluded.last_at,
+			                               achieved_at = excluded.achieved_at`,
+			st.ID, st.Count, st.LastAt, st.AchievedAt,
+		); err != nil {
+			return fmt.Errorf("写入成就状态失败: %w", err)
+		}
+	}
+	return nil
+}
+
+// achievementStatesInTx 在事务里读出全部成就状态。
+func achievementStatesInTx(tx *sql.Tx) (map[string]AchievementStateRow, error) {
+	rows, err := tx.Query(`SELECT id, count, last_at, achieved_at FROM achievement_state`)
+	if err != nil {
+		return nil, fmt.Errorf("读取成就状态失败: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]AchievementStateRow{}
+	for rows.Next() {
+		var item AchievementStateRow
+		if err := rows.Scan(&item.ID, &item.Count, &item.LastAt, &item.AchievedAt); err != nil {
+			return nil, fmt.Errorf("读取成就状态失败: %w", err)
+		}
+		out[item.ID] = item
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历成就状态失败: %w", err)
+	}
+	return out, nil
 }
 
 // sessionExists 仅用于测试断言。

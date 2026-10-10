@@ -21,7 +21,7 @@ const (
 	// schemaVersion 是当前 schema 版本。加迁移时，新版本号与对应的 schemaVn
 	// 语句列表要一起加，并且**不要**回头改老的 schemaVn：
 	// 全新库也会按顺序跑完所有版本，改了老的会让全新库与升级库产生分叉。
-	schemaVersion = 2
+	schemaVersion = 3
 )
 
 // ErrNotFound 表示目标记录不存在。
@@ -151,6 +151,47 @@ var schemaV2 = []string{
 	`ALTER TABLE timer_state ADD COLUMN plan_id INTEGER NOT NULL DEFAULT 0`,
 }
 
+// schemaV3 引入"等级与经验"的持久化状态。
+//
+// 为什么这一块要存、而成就本身不存：成就的判据是"总量够没够"，从记录重新推导
+// 永远得到同一个答案；而等级与经验是**不可重放**的——同一小时在拿到奖章前后
+// 值多少经验是不同的，而规则还会被调整。把已发放的值存下来，规则变化就只影响之后，
+// 老进度不会因为改了曲线而缩水。
+//
+// 三张表分工：
+//
+//   - progress：单行，存"账"（累计经验、没凑满一小时的零头、等级高水位、四类奖章数）。
+//   - qualifying_days：达标日账本，一天一行（当天累计 ≥ 1 小时）。它既是"已达成次数/
+//     上次达成于"的依据，也是核对进度的凭据。
+//   - achievement_state：每个成就的达成次数、上次达成时间、以及单次成就的达成时间。
+//
+// 三者都只增不减：删记录不会回收已发的经验与奖章。
+var schemaV3 = []string{
+	`CREATE TABLE IF NOT EXISTS progress (
+		id             INTEGER PRIMARY KEY CHECK (id = 1),
+		xp_tenths      INTEGER NOT NULL DEFAULT 0,
+		carry_sec      INTEGER NOT NULL DEFAULT 0,
+		level          INTEGER NOT NULL DEFAULT 1,
+		medals_week    INTEGER NOT NULL DEFAULT 0,
+		medals_month   INTEGER NOT NULL DEFAULT 0,
+		medals_quarter INTEGER NOT NULL DEFAULT 0,
+		medals_year    INTEGER NOT NULL DEFAULT 0,
+		updated_at     TEXT    NOT NULL DEFAULT ''
+	)`,
+	// 与 timer_state 一样先种下单行，之后所有写入都是 UPDATE。
+	`INSERT OR IGNORE INTO progress(id) VALUES (1)`,
+	`CREATE TABLE IF NOT EXISTS qualifying_days (
+		date TEXT PRIMARY KEY,
+		sec  INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE TABLE IF NOT EXISTS achievement_state (
+		id          TEXT PRIMARY KEY,
+		count       INTEGER NOT NULL DEFAULT 0,
+		last_at     TEXT    NOT NULL DEFAULT '',
+		achieved_at TEXT    NOT NULL DEFAULT ''
+	)`,
+}
+
 // migrate 依据 PRAGMA user_version 做前向迁移。重复执行是幂等的。
 func (d *DB) migrate() error {
 	tx, err := d.sql.Begin()
@@ -187,6 +228,17 @@ func (d *DB) migrate() error {
 		}
 		if _, err := tx.Exec("PRAGMA user_version = 2"); err != nil {
 			return fmt.Errorf("写入 schema 版本 2 失败: %w", err)
+		}
+	}
+
+	if version < 3 {
+		for i, stmt := range schemaV3 {
+			if _, err := tx.Exec(stmt); err != nil {
+				return fmt.Errorf("迁移 v3 第 %d 条语句失败: %w", i+1, err)
+			}
+		}
+		if _, err := tx.Exec("PRAGMA user_version = 3"); err != nil {
+			return fmt.Errorf("写入 schema 版本 3 失败: %w", err)
 		}
 	}
 

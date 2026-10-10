@@ -22,6 +22,8 @@ export type {
     ChangedDTO,
     DailyTotalDTO,
     DaySummaryDTO,
+    LevelDTO,
+    MedalCountsDTO,
     NavGotoDTO,
     NoticeDTO,
     PersonalizationDTO,

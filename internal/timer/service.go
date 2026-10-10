@@ -26,6 +26,11 @@ type Service struct {
 
 	onStateChange func(Snapshot)
 	onNotice      func(NoticeLevel, string)
+	// settle 是"把这次会话并进经验账"的规则函数，由 backend 注入（见 store.SettleFunc）。
+	//
+	// 计时器自己不懂经验怎么算，它只负责在写记录的那个事务里把函数带上；
+	// 为 nil 时表示不结算（单元测试里常这样）。
+	settle store.SettleFunc
 }
 
 // New 构造计时服务并载入持久化状态。
@@ -61,6 +66,16 @@ func (s *Service) OnNotice(fn func(NoticeLevel, string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onNotice = fn
+}
+
+// SetSettle 注入"把会话并进经验账"的规则函数，应在应用启动前设置一次。
+//
+// 纯函数、无副作用、不查库：真正的读写都在 FinishSession 那个事务里完成，
+// 这里只是让计时器在写记录时把规则带上，计时器自己不必懂经验怎么算。
+func (s *Service) SetSettle(fn store.SettleFunc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settle = fn
 }
 
 // Snapshot 返回当前状态。
@@ -224,7 +239,7 @@ func (s *Service) Stop() (StopResult, error) {
 		PlanID:      s.snap.PlanID,
 	}
 
-	id, err := s.st.FinishSession(rec, store.TimerStateRow{State: string(StateIdle)})
+	id, err := s.st.FinishSession(rec, store.TimerStateRow{State: string(StateIdle)}, s.settle)
 	if err != nil {
 		s.snap, s.carryNano = prev, prevCarry
 		out := StopResult{Snapshot: s.snap}
