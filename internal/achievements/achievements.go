@@ -44,39 +44,16 @@ type Definition struct {
 	Value func(Stats) int64
 }
 
-// All 是全部成就。加新成就就是往这里追加一条——
-// 前端的徽章图按 ID 命名（frontend/public/badges/<id>.png），没有图也有兜底圆章。
-var All = []Definition{
-	{
-		ID:          "first-step",
-		Name:        "第一步",
-		Description: "完成第一次计时。开始了，就已经比昨天近一步。",
-		Tier:        TierBronze,
-		Unit:        "次",
-		Target:      1,
-		Value:       func(s Stats) int64 { return int64(s.SessionCount) },
-	},
-	{
-		ID:          "hours-10",
-		Name:        "十小时",
-		Description: "累计专注满 10 小时。这是把「想做」变成「在做」的第一道坎。",
-		Tier:        TierSilver,
-		Unit:        "小时",
-		Target:      10,
-		// 按整小时计，进度条才会一格一格走，而不是每秒钟都在动。
-		Value: func(s Stats) int64 { return s.TotalSec / 3600 },
-	},
-	{
-		ID:          "streak-3",
-		Name:        "三日不辍",
-		Description: "连续 3 天留下记录。看的是一天一天地来，不是一次坐了多久。",
-		Tier:        TierGold,
-		Unit:        "天",
-		Target:      3,
-		// 用**最长**连续天数而不是当前连续：后者会归零，会让已经拿到的徽章消失。
-		Value: func(s Stats) int64 { return int64(s.LongestStreak) },
-	},
-}
+// All 是全部成就。
+//
+// **现在是空的**：最早那三条（第一步 / 十小时 / 三日不辍）是占位，用来验证
+// "徽章完全由记录推导"这条链路能不能跑通，已经按设计清掉了，等着换成正式那套。
+// 因此成就页现在是一面空墙——这是有意的状态，不是坏了。
+//
+// 加新成就就是往这里追加一条 Definition：前端的徽章图按 ID 命名
+// （frontend/public/badges/<id>.png），没有图会回退到内置的矢量奖章。
+// 判据必须单调不减（理由见文件头）。
+var All = []Definition{}
 
 // Result 是一个成就的评价结果。
 type Result struct {
@@ -86,10 +63,18 @@ type Result struct {
 	Progress int64
 }
 
-// Evaluate 评价全部成就。
+// Evaluate 用当前的成就表评价（服务层走这条）。
 func Evaluate(stats Stats) []Result {
-	out := make([]Result, 0, len(All))
-	for _, def := range All {
+	return EvaluateWith(All, stats)
+}
+
+// EvaluateWith 用指定的成就表评价。
+//
+// 与 Evaluate 分开是为了能测：All 清空之后，测试不该依赖于"里面恰好有哪几条"，
+// 而应该自己造几条来验框架本身（门槛、封顶、单调性）。
+func EvaluateWith(defs []Definition, stats Stats) []Result {
+	out := make([]Result, 0, len(defs))
+	for _, def := range defs {
 		value := def.Value(stats)
 		if value < 0 {
 			value = 0

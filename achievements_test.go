@@ -17,19 +17,17 @@ func record(t *testing.T, h *harness, dur time.Duration) {
 	}
 }
 
-func achievementByID(t *testing.T, sum AchievementsDTO, id string) AchievementDTO {
-	t.Helper()
-	for _, item := range sum.Items {
-		if item.ID == id {
-			return item
-		}
-	}
-	t.Fatalf("没有找到成就 %s", id)
-	return AchievementDTO{}
-}
+/*
+这一组测的是**汇总数字**，不是具体的徽章。
 
-// 空库也要给出一份完整的汇总：三个成就全锁着，数字全 0，不能报错。
-func TestAchievements_Empty(t *testing.T) {
+原因：成就表（internal/achievements.All）现在是有意留空的——旧的三条是占位，
+已经清掉。所以这里不再断言"某某成就解锁了"，而是断言那些数字本身
+（累计时长、场次、天数、连击、深夜/早起），它们才是将来评价成就的原料；
+汇总口径错了，徽章一定错，徽章对了也掩盖不了汇总错。
+*/
+
+// 成就表为空时，成就页应当是一面空墙，但汇总数字照常给全。
+func TestAchievements_NoDefinitions(t *testing.T) {
 	h := newHarness(t)
 	svc := NewAchievementsService(h.b)
 
@@ -37,25 +35,20 @@ func TestAchievements_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Summary() 失败: %v", err)
 	}
-	if sum.Unlocked != 0 || sum.Total != 3 {
-		t.Errorf("解锁进度 = %d/%d, 期望 0/3", sum.Unlocked, sum.Total)
+	if len(sum.Items) != 0 {
+		t.Errorf("成就表为空时 items = %d 条, 期望 0 条", len(sum.Items))
+	}
+	if sum.Total != 0 || sum.Unlocked != 0 {
+		t.Errorf("解锁进度 = %d/%d, 期望 0/0", sum.Unlocked, sum.Total)
 	}
 	if sum.TotalSec != 0 || sum.Sessions != 0 || sum.ActiveDays != 0 ||
 		sum.CurrentStreak != 0 || sum.LongestStreak != 0 {
 		t.Errorf("空库汇总 = %+v, 期望全 0", sum)
 	}
-	for _, item := range sum.Items {
-		if item.Unlocked {
-			t.Errorf("%s 在空库上就解锁了", item.ID)
-		}
-		if item.Progress != 0 {
-			t.Errorf("%s 进度 = %d, 期望 0", item.ID, item.Progress)
-		}
-	}
 }
 
-// 第一次计时就解锁"第一步"，并让汇总数字跟着动。
-func TestAchievements_FirstStep(t *testing.T) {
+// 第一次计时就要把汇总数字算对。
+func TestAchievements_FirstRecordUpdatesSummary(t *testing.T) {
 	h := newHarness(t)
 	svc := NewAchievementsService(h.b)
 	record(t, h, 25*time.Minute)
@@ -76,15 +69,12 @@ func TestAchievements_FirstStep(t *testing.T) {
 	if sum.CurrentStreak != 1 || sum.LongestStreak != 1 {
 		t.Errorf("连击 = (%d, %d), 期望 (1, 1)", sum.CurrentStreak, sum.LongestStreak)
 	}
-	if item := achievementByID(t, sum, "first-step"); !item.Unlocked {
-		t.Errorf("first-step 应当解锁: %+v", item)
-	}
-	if sum.Unlocked != 1 {
-		t.Errorf("解锁数 = %d, 期望 1", sum.Unlocked)
-	}
 }
 
-// 连着三天留记录解锁"三日不辍"；断掉之后"最长连续"仍然保留（成就不会丢）。
+// 连着三天留记录：当前与最长连击都是 3；断掉之后最长连击仍然保留。
+//
+// 这条留着的意义是守"最长连续"这个量——将来它大概率会被某条成就当判据，
+// 而它一旦会往回走，用户就会"徽章突然消失"。
 func TestAchievements_StreakSurvivesBreak(t *testing.T) {
 	h := newHarness(t)
 	svc := NewAchievementsService(h.b)
@@ -103,11 +93,8 @@ func TestAchievements_StreakSurvivesBreak(t *testing.T) {
 	if sum.LongestStreak != 3 || sum.CurrentStreak != 3 {
 		t.Errorf("连击 = (%d, %d), 期望 (3, 3)", sum.CurrentStreak, sum.LongestStreak)
 	}
-	if item := achievementByID(t, sum, "streak-3"); !item.Unlocked {
-		t.Errorf("streak-3 应当解锁: %+v", item)
-	}
 
-	// 隔两天再来一次：当前连击归 1，但最长连击还是 3，成就不能因此消失。
+	// 隔两天再来一次：当前连击归 1，但最长连击还是 3。
 	h.clock.Advance(72 * time.Hour)
 	record(t, h, 10*time.Minute)
 
@@ -119,50 +106,28 @@ func TestAchievements_StreakSurvivesBreak(t *testing.T) {
 		t.Errorf("断掉之后当前连击 = %d, 期望 1", sum.CurrentStreak)
 	}
 	if sum.LongestStreak != 3 {
-		t.Errorf("最长连击 = %d, 期望仍是 3", sum.LongestStreak)
-	}
-	if item := achievementByID(t, sum, "streak-3"); !item.Unlocked {
-		t.Error("断掉之后 streak-3 不该重新锁上——判据是单调的")
+		t.Errorf("最长连击 = %d, 期望仍是 3（它会当成就判据，不能往回走）", sum.LongestStreak)
 	}
 }
 
-// 累计满十小时解锁"十小时"，进度按整小时走。
-func TestAchievements_TenHours(t *testing.T) {
+// 累计时长按秒累加，不受会话次数影响。
+func TestAchievements_TotalAccumulates(t *testing.T) {
 	h := newHarness(t)
 	svc := NewAchievementsService(h.b)
 
-	// 先记 9 小时：还差一点。
 	record(t, h, 9*time.Hour)
+	h.clock.Advance(24 * time.Hour)
+	record(t, h, 2*time.Hour)
+
 	sum, err := svc.Summary()
 	if err != nil {
 		t.Fatalf("Summary() 失败: %v", err)
 	}
-	item := achievementByID(t, sum, "hours-10")
-	if item.Unlocked {
-		t.Errorf("9 小时就解锁了十小时: %+v", item)
+	if sum.TotalSec != 11*3600 {
+		t.Errorf("累计时长 = %d, 期望 %d", sum.TotalSec, 11*3600)
 	}
-	if item.Progress != 9 || item.Target != 10 || item.Unit != "小时" {
-		t.Errorf("进度 = %d/%d %s, 期望 9/10 小时", item.Progress, item.Target, item.Unit)
-	}
-
-	// 再补 2 小时（累计 11 小时）。
-	h.clock.Advance(24 * time.Hour)
-	record(t, h, 2*time.Hour)
-
-	sum, err = svc.Summary()
-	if err != nil {
-		t.Fatalf("Summary() 失败: %v", err)
-	}
-	item = achievementByID(t, sum, "hours-10")
-	if !item.Unlocked {
-		t.Errorf("11 小时应当解锁: %+v", item)
-	}
-	// 进度封顶在门槛上：进度条按百分比画，超过 100% 会溢出。
-	if item.Progress != 10 {
-		t.Errorf("进度 = %d, 期望封顶在 10", item.Progress)
-	}
-	if sum.Unlocked != 2 {
-		t.Errorf("解锁数 = %d, 期望 2（第一步 + 十小时）", sum.Unlocked)
+	if sum.Sessions != 2 || sum.ActiveDays != 2 {
+		t.Errorf("场次/天数 = %d/%d, 期望 2/2", sum.Sessions, sum.ActiveDays)
 	}
 }
 
