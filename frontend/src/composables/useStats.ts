@@ -50,6 +50,14 @@ const range = ref<StatsRange>("week");
 const filterPlanId = ref(0);
 const selectedDate = ref(todayKey());
 const month = ref(monthOf(todayKey()));
+/**
+ * 柱状图的周偏移：0 = 本周，-1 = 上周，-2 = 上上周……
+ *
+ * 只允许往过去翻（未来没有记录）：所以这里是个"往回数几周"的计数，
+ * 而不是一个绝对日期。用绝对日期也能做，但那样"回到本周"就要另外记一个今天，
+ * 跨零点还会错位——偏移量天然跟着今天走。
+ */
+const weekOffset = ref(0);
 const chartPoints = ref<DayPoint[]>([]);
 const monthTotals = ref<Record<string, DayTotal>>({});
 const loading = ref(false);
@@ -79,8 +87,11 @@ async function fetchAll(): Promise<void> {
 	const isMonth = range.value === "month";
 	// 本周固定画周一到周日七格（而不是"周一到今天"）：周一打开时只到今天会只剩
 	// 一根柱子，柱数每天变来变去也不好比较。未来的日子自然没有记录，是 0。
-	const start = isMonth ? monthStart : weekStart(today);
-	const end = isMonth ? monthEnd : addDays(weekStart(today), 6);
+	// 往过去翻周时整周都已经过去，同样按七格画。
+	const start = isMonth
+		? monthStart
+		: addDays(weekStart(today), weekOffset.value * 7);
+	const end = isMonth ? monthEnd : addDays(start, 6);
 	// 用户把月历翻到未来月份时 start > end，DailyTotals 对这种入参会直接报错，所以先挡掉。
 	const valid = start <= end;
 
@@ -126,7 +137,7 @@ export function refreshStats(): Promise<void> {
 
 /** 幂等绑定：多次调用 useStats 不会注册多组 watcher。 */
 function ensureBound(): void {
-	watch([range, filterPlanId, month], () => {
+	watch([range, filterPlanId, month, weekOffset], () => {
 		void fetchAll();
 	});
 }
@@ -147,12 +158,34 @@ ensureBound();
 const rangeTotalSec = computed(() => chartPoints.value.reduce((sum, p) => sum + p.totalSec, 0));
 const rangeCount = computed(() => chartPoints.value.reduce((sum, p) => sum + p.count, 0));
 
+/**
+ * 能不能往后翻。未来没有记录，所以：周模式最多到本周，月模式最多到本月。
+ *
+ * 月模式这条与月历自己的 canGoNext 是同一套判定（月历那边写在组件里，
+ * 这里再判一次是因为图表头部也有箭头，两处必须同时置灰才不矛盾）。
+ */
+const canStepForward = computed(() =>
+	range.value === "month" ? month.value < monthOf(todayKey()) : weekOffset.value < 0,
+);
+
 export function useStats() {
 	return {
 		range: readonly(range) as Readonly<Ref<StatsRange>>,
 		setRange(next: StatsRange): void {
 			range.value = next;
+			// "本周"这四个字指的就是当前这一周：翻到上周之后再点它应当回到本周，
+			// 否则按钮写着"本周"、图上是上周，读起来自相矛盾。
+			// 月模式不做对应的重置——月份不叫"本月"而是具体月名，翻月由月历自己的
+			// 箭头管；点一下"本月"就把用户翻了半天的月份弹回当前月反而是添乱。
+			if (next === "week") weekOffset.value = 0;
 		},
+		/** 图表区间的周偏移（0 = 本周，负数 = 往前数），用来写标题。 */
+		weekOffset: readonly(weekOffset) as Readonly<Ref<number>>,
+		/** 按周前后翻。正方向夹在 0：未来没有记录。 */
+		shiftWeek(delta: number): void {
+			weekOffset.value = Math.min(0, weekOffset.value + delta);
+		},
+		canStepForward,
 		filterPlanId: readonly(filterPlanId) as Readonly<Ref<number>>,
 		setFilterPlanId(id: number): void {
 			filterPlanId.value = id;

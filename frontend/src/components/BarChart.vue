@@ -128,9 +128,15 @@ function labelClass(index: number): string {
 </template>
 
 <style scoped>
+/*
+ * 这块图要能"长高"：外面那块面板吸收剩余高度，绘图区跟着长。
+ * 柱子的高度是百分比，所以图一变高柱子自然变高，不用另算。
+ */
 .chart {
 	display: flex;
 	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
 	width: 100%;
 	min-width: 0;
 }
@@ -139,13 +145,13 @@ function labelClass(index: number): string {
  * 左侧 34px 是给刻度文字留的槽。绝对定位的网格线以 padding box 为包含块，
  * 所以 left: 0 仍然贴齐整块图的左边（含槽），文字就落在槽里不压柱子。
  *
- * 高度 128px：之前为了塞下"图 + 月历 + 当日明细"压到 96px，结果最上面那条刻度
- * 贴着面板边缘、最高的柱子也顶到它，看着很挤。记录页下方换成累计统计之后腾出了
- * 一百多像素，把这里还回去。
+ * 高度是弹性的：flex 撑满面板，104px 是下限（还能看清刻度与柱子的高度）。
+ * 窗口矮到这个下限就让整页去滚动——记录页在最小窗口下本来就要滚。
  */
 .plot {
 	position: relative;
-	height: 128px;
+	flex: 1 1 auto;
+	min-height: 104px;
 	padding-left: 34px;
 }
 
@@ -172,10 +178,25 @@ function labelClass(index: number): string {
 	white-space: nowrap;
 }
 
+/*
+ * 柱子的容器必须**绝对定位**，不能靠 `height: 100%`。
+ *
+ * 绘图区的高度现在是弹性来的（flex），它的 height 属性是 auto——
+ * 百分比高度在"高度不确定"的父元素里解析不了，会退化成 auto，
+ * 于是柱子只剩 min-height 那 3px，整张图变成顶端几条细线（实测踩到过）。
+ * 绝对定位把上下边钉在绘图区上，高度就是确定的，百分比才成立。
+ *
+ * left: 34px 与 .plot 的 padding-left 对齐：绝对定位的包含块是 padding box
+ * （从边框内侧算），所以这个 34px 正好落在刻度槽的右边缘，和下面的日期标签对齐。
+ */
 .bars {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 34px;
+	right: 0;
 	display: flex;
 	gap: 2px;
-	height: 100%;
 	min-width: 0;
 }
 

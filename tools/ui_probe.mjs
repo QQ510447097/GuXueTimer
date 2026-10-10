@@ -184,12 +184,42 @@ const PRE_CAPTURE = {
 		btn.click();
 		return true;
 	})()`,
-	// 切到「本月」（验证区间切换真的会重新取数——这里曾经因为 watcher 被卸载而失效）
-	records: `(() => {
-		const btn = document.querySelector('[data-range="month"]');
-		if (!btn) return false;
-		btn.click();
-		return true;
+	/*
+	 * 记录页：一次验三件事，并把状态还原。
+	 *
+	 *   1. 切「本月」→ 标题与柱子根数都要跟着变（这里曾经因为 watcher 被卸载而失效）
+	 *   2. 切回「本周」→ 再点「←」翻到上一周：标题要变成"上周"，柱子仍是七根
+	 *   3. 上一周时「→」应当可用，回到本周后应当置灰（未来没有记录）
+	 *
+	 * 结尾会点「→」回到本周：截图工具连的是真实数据目录，跑完把界面留在"上周"
+	 * 会让下一次截图看起来莫名其妙。
+	 */
+	records: `(async () => {
+		const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+		const label = () => document.querySelector('[data-period]')?.dataset.period ?? '';
+		const bars = () => Number(document.querySelector('[data-points]')?.dataset.points ?? -1);
+		const month = document.querySelector('[data-range="month"]');
+		const week = document.querySelector('[data-range="week"]');
+		const back = document.querySelector('[data-period-step="back"]');
+		const fwd = document.querySelector('[data-period-step="forward"]');
+		if (!month || !week || !back || !fwd) return 'no-controls';
+
+		const atStart = label();
+		month.click();
+		await wait(500);
+		const monthState = label() + ' / ' + bars() + ' 根';
+
+		week.click();
+		await wait(500);
+		back.click();
+		await wait(500);
+		const prevState = label() + ' / ' + bars() + ' 根';
+		const forwardUsable = fwd.disabled !== true;
+
+		fwd.click();
+		await wait(500);
+
+		return \`起始 \${atStart}; 本月 \${monthState}; 上一周 \${prevState}（此时→可用 \${forwardUsable}）; 还原 \${label()}\`;
 	})()`,
 	// settings 的动作没了：那一页已经没有需要脚本化交互的控件
 	// （休息提醒连同它的步进器一起删除了）。

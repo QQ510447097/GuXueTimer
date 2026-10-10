@@ -3,6 +3,7 @@ import { computed, onMounted } from "vue";
 import BarChart from "../components/BarChart.vue";
 import GlassPanel from "../components/GlassPanel.vue";
 import HeatmapCalendar from "../components/HeatmapCalendar.vue";
+import IconBack from "../components/IconBack.vue";
 import PlanChip from "../components/PlanChip.vue";
 import StatTile from "../components/StatTile.vue";
 import { formatDurationCN, monthLabel, shortDayLabel, todayKey } from "../composables/format";
@@ -32,6 +33,10 @@ const {
 	setSelectedDate,
 	month,
 	setMonth,
+	shiftMonth,
+	weekOffset,
+	shiftWeek,
+	canStepForward,
 	chartPoints,
 	chartStart,
 	chartEnd,
@@ -49,12 +54,33 @@ const ranges: { key: StatsRange; label: string }[] = [
 	{ key: "month", label: "本月" },
 ];
 
-// 图表区间的标题：本周写清这七天的起止，本月直接写月份（图表就是月历那个月）。
+// 图表区间的标题：周模式写清那七天的起止，月模式直接写月份（图表就是月历那个月）。
 const periodLabel = computed(() => {
 	if (range.value === "month") return monthLabel(month.value);
 	if (!chartStart.value || !chartEnd.value) return "本周";
-	return `本周（${shortDayLabel(chartStart.value)} – ${shortDayLabel(chartEnd.value)}）`;
+	const span = `${shortDayLabel(chartStart.value)} – ${shortDayLabel(chartEnd.value)}`;
+	const back = -weekOffset.value;
+	if (back === 0) return `本周（${span}）`;
+	if (back === 1) return `上周（${span}）`;
+	return `${back} 周前（${span}）`;
 });
+
+/*
+ * 图表头部那两个箭头：周模式翻周，月模式翻月。
+ *
+ * 月模式下它与下面月历的箭头是同一个状态（都改 month），看着重复——但这是有意的：
+ * 图表头部讲的始终是"这张图在画哪一段"，而月历头部讲的是"这个月历显示哪个月"，
+ * 两者在月模式下恰好相等。只在一处放箭头会让另一处看起来"少了控制"。
+ */
+function stepBack(): void {
+	if (range.value === "month") shiftMonth(-1);
+	else shiftWeek(-1);
+}
+
+function stepForward(): void {
+	if (range.value === "month") shiftMonth(1);
+	else shiftWeek(1);
+}
 
 // 渲染期取一次就够：一直开着跨过午夜属于边角情况，那时后端会用空串自行判定今天。
 const today = todayKey();
@@ -68,6 +94,8 @@ onMounted(() => {
 <template>
 	<section class="records-view gx-col">
 		<GlassPanel padding="12px 16px">
+		<!-- 区间标题搬进图表头部了（它讲的是"这张图在画哪一段"，跟着图走更顺），
+		     所以这一行只剩区间选择与合计 -->
 			<div class="head">
 				<div class="ranges">
 					<button
@@ -82,10 +110,6 @@ onMounted(() => {
 						{{ item.label }}
 					</button>
 				</div>
-				<!-- 区间标题并进这一行，不再单独占一格：
-				     :data-period 要把值绑上，写成无值的 data-period 时 dataset.period
-				     是空串，tools/ui_probe.mjs 就断言不到区间切换了 -->
-				<span class="period gx-faint" :data-period="periodLabel">{{ periodLabel }}</span>
 				<div class="total">
 					<span class="total-value gx-tabular">{{ formatDurationCN(rangeTotalSec) }}</span>
 					<span class="total-hint gx-faint">{{ rangeCount }} 次</span>
@@ -110,9 +134,36 @@ onMounted(() => {
 			</div>
 		</GlassPanel>
 
-		<!-- 顶部 20px 而不是 14px：最高的那条刻度线就在绘图区顶端，它的文字有一半在
-		     绘图区之上，贴着面板边缘会显得"顶到头了" -->
-		<GlassPanel padding="20px 15px 14px">
+		<!-- 这块面板吸收剩余高度（见 .chart-panel）：窗口多高，柱状图就多高，
+		     记录页下方不会留一截空白。顶部内边距给刻度文字留位置——最高的那条
+		     刻度线就在绘图区顶端，它的文字有一半在绘图区之上。 -->
+		<GlassPanel class="chart-panel" padding="16px 15px 14px">
+			<div class="chart-head">
+				<!-- :data-period 要把值绑上：写成无值的 data-period 时 dataset.period
+				     是空串，tools/ui_probe.mjs 就断言不到区间与翻周了 -->
+				<span class="period-label" :data-period="periodLabel">{{ periodLabel }}</span>
+				<span class="gx-spacer"></span>
+				<button
+					type="button"
+					class="step"
+					data-period-step="back"
+					title="往前一段"
+					@click="stepBack"
+				>
+					<IconBack :size="14" />
+				</button>
+				<button
+					type="button"
+					class="step"
+					data-period-step="forward"
+					:disabled="!canStepForward"
+					title="往后一段"
+					@click="stepForward"
+				>
+					<span class="flip"><IconBack :size="14" /></span>
+				</button>
+			</div>
+
 			<BarChart :points="chartPoints" />
 
 			<div class="divider"></div>
@@ -166,6 +217,73 @@ onMounted(() => {
 .records-view {
 	/* 12px 而不是全局的 14：整页高度是按"一屏放得下"量出来的，间距也算在内的 */
 	gap: 12px;
+	/*
+	 * 撑满内容区，好让中间那块（图表 + 月历）吸收剩余高度——窗口有多高，柱状图就有多高，
+	 * 页面下方不会留一截空白。
+	 *
+	 * 探针的"一屏放得下"检查测不出这种空白（scrollHeight 不会小于 clientHeight），
+	 * 所以"填满了没有"得看截图或 tools/shoot.ps1 报的柱状图高度。
+	 */
+	min-height: 100%;
+}
+
+/*
+ * 图表 + 月历那块吸收剩余高度；窗口矮时缩回各组件自己的下限。
+ *
+ * 不写死柱状图高度、而是让它跟着面板长：128px 是"能看清"的下限，
+ * 多出来的空间全给柱子——这是记录页唯一一处"多出来的高度有地方用"的地方。
+ */
+.chart-panel {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+}
+
+.chart-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 10px;
+}
+
+.period-label {
+	font-size: 12.5px;
+	color: var(--gx-text-2);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* 翻周/翻月的圆钮，与月历头部那两个保持同一套外观 */
+.step {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: 1px solid var(--gx-glass-2-border);
+	border-radius: 50%;
+	background: var(--gx-glass-2-bg);
+	color: var(--gx-text-2);
+	cursor: pointer;
+	transition: color var(--gx-dur) var(--gx-ease), border-color var(--gx-dur) var(--gx-ease);
+}
+
+.step:hover:not(:disabled) {
+	color: var(--gx-accent);
+	border-color: var(--gx-accent-line);
+}
+
+.step:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.flip {
+	display: inline-flex;
+	transform: rotate(180deg);
 }
 
 .head {
@@ -189,12 +307,6 @@ onMounted(() => {
 	font-size: 12.5px;
 	font-family: inherit;
 	cursor: pointer;
-}
-
-/* 区间标题跟着胶囊走，不再单独占一行：省下的高度直接换成"整页不用滚" */
-.period {
-	font-size: 11.5px;
-	white-space: nowrap;
 }
 
 .total {
