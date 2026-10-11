@@ -70,12 +70,16 @@ const levelRatePercent = computed(() => {
 
 /**
  * 奖章四件套：固定展示四个位置（数量为 0 也占位，布局才不会随数据跳）。
+ *
+ * bonus 是每枚奖章让"每小时经验"多出来的部分，与 internal/achievements 的
+ * 成长倍率（10 + W + 2M + 3Q + 12Y 个十分之一）一一对应：周 +0.1、月 +0.2、
+ * 季 +0.3、年 +1.2。加成写在悬停提示里，页面上不铺一段解释。
  */
 const MEDAL_ORDER = [
-	{ kind: "bronze", name: "铜勋章", key: "week" },
-	{ kind: "silver", name: "银勋章", key: "month" },
-	{ kind: "gold", name: "金勋章", key: "quarter" },
-	{ kind: "ruby", name: "红宝石勋章", key: "year" },
+	{ kind: "bronze", name: "铜勋章", key: "week", bonus: "0.1" },
+	{ kind: "silver", name: "银勋章", key: "month", bonus: "0.2" },
+	{ kind: "gold", name: "金勋章", key: "quarter", bonus: "0.3" },
+	{ kind: "ruby", name: "红宝石勋章", key: "year", bonus: "1.2" },
 ] as const;
 
 const medalRow = computed(() => {
@@ -83,6 +87,7 @@ const medalRow = computed(() => {
 	return MEDAL_ORDER.map((m) => ({
 		kind: m.kind,
 		name: m.name,
+		bonus: m.bonus,
 		count: (medals ? medals[m.key] : 0) ?? 0,
 	}));
 });
@@ -195,7 +200,7 @@ function onMedalError(event: Event): void {
 							:key="medal.kind"
 							class="medal-chip"
 							:class="{ 'is-zero': medal.count === 0 }"
-							:title="`${medal.name} × ${medal.count}`"
+							:title="`${medal.name} × ${medal.count} · 每枚让每小时多 ${medal.bonus} 经验`"
 						>
 							<img class="medal-img" :src="`/medals/${medal.kind}.png`" :alt="medal.name" @error="onMedalError" />
 							<span class="gx-tabular">×{{ medal.count }}</span>
@@ -283,7 +288,7 @@ function onMedalError(event: Event): void {
 						v-for="item in dailyItems"
 						:key="item.id"
 						class="ach"
-						:class="{ 'is-locked': !item.todayDone }"
+						:class="{ 'is-locked': item.count === 0 }"
 						padding="9px 12px"
 					>
 						<div class="ach-head">
@@ -304,7 +309,7 @@ function onMedalError(event: Event): void {
 						</div>
 					</GlassPanel>
 
-					<!-- 机制卡「寸阴寸金」：说明每小时的收益，不算成就 -->
+					<!-- 机制卡「寸阴寸金」：一小时的收益一句话说完，加成写在勋章的悬停里 -->
 					<GlassPanel class="ach kind-growth" padding="9px 12px">
 						<div class="ach-head">
 							<div class="ach-art">
@@ -315,9 +320,7 @@ function onMedalError(event: Event): void {
 								<span class="ach-state gx-faint">每小时 +{{ fmtXp(level.rateTenths) }} 经验</span>
 							</div>
 						</div>
-						<p class="ach-desc gx-muted" title="每学满一小时就多得一份经验，奖章越多这份越厚">
-							每学满一小时就多得一份经验，奖章越多这份越厚
-						</p>
+						<p class="ach-desc gx-muted">每小时学习获得经验</p>
 						<div class="ach-foot">
 							<div class="track">
 								<div class="fill" :style="{ width: `${carryPercent}%` }"></div>
