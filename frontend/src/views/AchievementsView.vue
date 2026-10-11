@@ -49,6 +49,15 @@ function fmtXp(tenths: number): string {
 	return (tenths / 10).toFixed(1);
 }
 
+/**
+ * 同上的紧凑写法：整数不带小数位，其余保留一位。
+ *
+ * 用在"每小时 +1 / +1.4 / +3.6"这类地方——写成 1.0 反而像没算准。
+ */
+function fmtXpPlain(tenths: number): string {
+	return tenths % 10 === 0 ? String(tenths / 10) : (tenths / 10).toFixed(1);
+}
+
 /** 进度百分比。分母为零时按 0 处理，避免 NaN 把进度条画没。 */
 function percent(item: AchievementDTO): number {
 	if (!item.target) return 0;
@@ -71,25 +80,30 @@ const levelRatePercent = computed(() => {
 /**
  * 奖章四件套：固定展示四个位置（数量为 0 也占位，布局才不会随数据跳）。
  *
- * bonus 是每枚奖章让"每小时经验"多出来的部分，与 internal/achievements 的
- * 成长倍率（10 + W + 2M + 3Q + 12Y 个十分之一）一一对应：周 +0.1、月 +0.2、
- * 季 +0.3、年 +1.2。加成只在悬停提示里出现，页面上不铺解释。
+ * bonusTenths 是**单枚**奖章让"每小时经验"多出来的部分，单位是十分之一经验，
+ * 与 internal/achievements 的成长倍率（10 + W + 2M + 3Q + 12Y）一一对应：
+ * 周 1、月 2、季 3、年 12。悬停里显示的是**按实际枚数算出来的**值
+ * （2 枚铜 = +0.2，3 枚红宝石 = +3.6，一枚都没有 = +0），所以用整数乘再格式化，
+ * 不走浮点（0.1 × 3 = 0.30000000000000004）。
  */
 const MEDAL_ORDER = [
-	{ kind: "bronze", name: "铜勋章", key: "week", bonus: "0.1" },
-	{ kind: "silver", name: "银勋章", key: "month", bonus: "0.2" },
-	{ kind: "gold", name: "金勋章", key: "quarter", bonus: "0.3" },
-	{ kind: "ruby", name: "红宝石勋章", key: "year", bonus: "1.2" },
+	{ kind: "bronze", name: "铜勋章", key: "week", bonusTenths: 1 },
+	{ kind: "silver", name: "银勋章", key: "month", bonusTenths: 2 },
+	{ kind: "gold", name: "金勋章", key: "quarter", bonusTenths: 3 },
+	{ kind: "ruby", name: "红宝石勋章", key: "year", bonusTenths: 12 },
 ] as const;
 
 const medalRow = computed(() => {
 	const medals = level.value.medals;
-	return MEDAL_ORDER.map((m) => ({
-		kind: m.kind,
-		name: m.name,
-		bonus: m.bonus,
-		count: (medals ? medals[m.key] : 0) ?? 0,
-	}));
+	return MEDAL_ORDER.map((m) => {
+		const count = (medals ? medals[m.key] : 0) ?? 0;
+		return {
+			kind: m.kind,
+			name: m.name,
+			count,
+			bonus: fmtXpPlain(count * m.bonusTenths),
+		};
+	});
 });
 
 const MEDAL_NAMES: Record<string, string> = {
@@ -119,6 +133,14 @@ function rewardTitle(item: AchievementDTO): string {
 		? `每天达标 +${rewardPoints(item)} 经验`
 		: `每达成一次 +${rewardPoints(item)} 经验`;
 }
+
+/**
+ * 「寸阴寸金」那颗徽标显示的每小时经验：基础 1 点加上全部奖章加成，
+ * 也就是后端算好的 rateTenths（10 + W + 2M + 3Q + 12Y）。它随奖章数变。
+ */
+const hourlyRateText = computed(() => fmtXpPlain(level.value.rateTenths));
+
+const hourlyRateTitle = computed(() => `每小时 +${fmtXp(level.value.rateTenths)} 经验，随奖章提升`);
 
 /** 每张卡的第二行：这一条现在是什么状态。 */
 function stateText(item: AchievementDTO): string {
@@ -229,7 +251,7 @@ function onMedalError(event: Event): void {
 							:key="medal.kind"
 							class="medal-chip"
 							:class="{ 'is-zero': medal.count === 0 }"
-							:title="`${medal.name} × ${medal.count} · +${medal.bonus}经验/小时`"
+							:title="`${medal.name} × ${medal.count}（+${medal.bonus}经验/小时）`"
 						>
 							<img class="medal-img" :src="`/medals/${medal.kind}.png`" :alt="medal.name" @error="onMedalError" />
 							<span class="gx-tabular">×{{ medal.count }}</span>
@@ -286,13 +308,15 @@ function onMedalError(event: Event): void {
 								<img :src="artFor(item.id)" :alt="item.name" @error="(e: Event) => onArtError(item.id, e)" />
 							</div>
 							<div class="ach-text">
-								<span class="ach-name">{{ item.name }}</span>
+								<!-- 奖励经验跟在名字右边：每一组都在同一个位置，不受有没有奖章影响 -->
+								<span class="ach-name-row">
+									<span class="ach-name">{{ item.name }}</span>
+									<span v-if="item.rewardTenths > 0" class="ach-reward" :title="rewardTitle(item)">
+										+{{ rewardPoints(item) }}
+									</span>
+								</span>
 								<span class="ach-state gx-faint" :title="stateTitle(item)">{{ stateText(item) }}</span>
 							</div>
-							<!-- 达成一次给多少经验：写在卡上，别让人去猜 -->
-							<span v-if="item.rewardTenths > 0" class="ach-reward" :title="rewardTitle(item)">
-								+{{ rewardPoints(item) }}
-							</span>
 							<img
 								v-if="item.medal"
 								class="ach-medal"
@@ -329,12 +353,14 @@ function onMedalError(event: Event): void {
 								<img :src="artFor(item.id)" :alt="item.name" @error="(e: Event) => onArtError(item.id, e)" />
 							</div>
 							<div class="ach-text">
-								<span class="ach-name">{{ item.name }}</span>
+								<span class="ach-name-row">
+									<span class="ach-name">{{ item.name }}</span>
+									<span v-if="item.rewardTenths > 0" class="ach-reward" :title="rewardTitle(item)">
+										+{{ rewardPoints(item) }}
+									</span>
+								</span>
 								<span class="ach-state gx-faint" :title="stateTitle(item)">{{ stateText(item) }}</span>
 							</div>
-							<span v-if="item.rewardTenths > 0" class="ach-reward" :title="rewardTitle(item)">
-								+{{ rewardPoints(item) }}
-							</span>
 						</div>
 						<p class="ach-desc gx-muted" :title="item.description">{{ item.description }}</p>
 						<div class="ach-foot">
@@ -345,15 +371,18 @@ function onMedalError(event: Event): void {
 						</div>
 					</GlassPanel>
 
-					<!-- 机制卡「寸阴寸金」：一小时的收益一句话说完，加成写在勋章的悬停里 -->
+					<!-- 机制卡「寸阴寸金」：徽标上的每小时经验是按奖章数算出来的 -->
 					<GlassPanel class="ach kind-growth" padding="9px 12px">
 						<div class="ach-head">
 							<div class="ach-art">
 								<img :src="hourlyXp" alt="寸阴寸金" />
 							</div>
 							<div class="ach-text">
-								<span class="ach-name">寸阴寸金</span>
-								<span class="ach-state gx-faint">每小时 +{{ fmtXp(level.rateTenths) }} 经验</span>
+								<span class="ach-name-row">
+									<span class="ach-name">寸阴寸金</span>
+									<span class="ach-reward" :title="hourlyRateTitle">+{{ hourlyRateText }}</span>
+								</span>
+								<span class="ach-state gx-faint">已计入 {{ level.hoursCounted }} 小时</span>
 							</div>
 						</div>
 						<p class="ach-desc gx-muted">每小时学习获得经验</p>
@@ -580,12 +609,22 @@ function onMedalError(event: Event): void {
 	flex: 1 1 auto;
 }
 
+/* 名字 + 奖励徽标同一行：徽标固定宽度，名字不够长时自己省略 */
+.ach-name-row {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+}
+
 .ach-name {
 	font-size: 12.5px;
 	font-weight: 650;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	/* 作为 flex 子项要允许收缩，否则省略号不会出现 */
+	min-width: 0;
 }
 
 .ach-state {
