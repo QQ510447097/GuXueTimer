@@ -113,13 +113,18 @@ const MEDAL_NAMES: Record<string, string> = {
 	ruby: "红宝石勋章",
 };
 
-/** 日期+时刻：达成时间要精确到分钟，不能只显示到天。 */
-function stampOf(raw: string, withYear = false): string {
+/**
+ * 时间戳显示：**年-月-日 时:分**。
+ *
+ * 年份一律写出来。同一年的记录只写 "10-05 05:53" 确实更短，但"哪一年做到的"
+ * 对这类长期记录是有用的信息，而它只占 5 个字符——卡上放得下，就别让人去悬停里找。
+ * 库里有两种形态：增量结算写的是 RFC3339（带时分），老库回填只有日期。
+ */
+function stampOf(raw: string): string {
 	if (!raw) return "";
-	// 库里有两种形态：增量结算写的是 RFC3339（带时分），老库回填只有日期。
 	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(raw);
 	if (!m) return raw;
-	const date = withYear ? `${m[1]}-${m[2]}-${m[3]}` : `${m[2]}-${m[3]}`;
+	const date = `${m[1]}-${m[2]}-${m[3]}`;
 	return m[4] ? `${date} ${m[4]}:${m[5]}` : date;
 }
 
@@ -165,15 +170,20 @@ function stateText(item: AchievementDTO): string {
 	}
 }
 
-/** 状态行的悬停：带上年份，免得"10-13"看不出是哪一年。 */
+/**
+ * 状态行的悬停。
+ *
+ * 卡上已经写到分钟了，这里的用处是把那些**被省略号截掉**的长行补全
+ * （窄窗口下"已达成 N 次 · 上次 …"会被截），以及给每日那张卡留个位置
+ * ——它的状态行要显示"今天还差多少"，上次达成时刻只能放这儿。
+ */
 function stateTitle(item: AchievementDTO): string {
-	if (item.kind === "once") return item.achievedAt ? `达成于 ${stampOf(item.achievedAt, true)}` : "";
+	if (item.kind === "once") return item.achievedAt ? `达成于 ${stampOf(item.achievedAt)}` : "";
 	if (item.kind === "cycle" && item.count > 0) {
-		return item.lastAt ? `已达成 ${item.count} 次 · 上次 ${stampOf(item.lastAt, true)}` : "";
+		return item.lastAt ? `已达成 ${item.count} 次 · 上次 ${stampOf(item.lastAt)}` : "";
 	}
-	// 每日那张卡的位置留给"今天还差多少"，上次达成时刻放悬停里。
 	if (item.kind === "daily" && item.count > 0) {
-		return item.lastAt ? `累计 ${item.count} 天 · 上次 ${stampOf(item.lastAt, true)}` : "";
+		return item.lastAt ? `累计 ${item.count} 天 · 上次 ${stampOf(item.lastAt)}` : "";
 	}
 	return "";
 }
