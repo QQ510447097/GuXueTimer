@@ -73,7 +73,7 @@ const levelRatePercent = computed(() => {
  *
  * bonus 是每枚奖章让"每小时经验"多出来的部分，与 internal/achievements 的
  * 成长倍率（10 + W + 2M + 3Q + 12Y 个十分之一）一一对应：周 +0.1、月 +0.2、
- * 季 +0.3、年 +1.2。加成写在悬停提示里，页面上不铺一段解释。
+ * 季 +0.3、年 +1.2。加成只在悬停提示里出现，页面上不铺解释。
  */
 const MEDAL_ORDER = [
 	{ kind: "bronze", name: "铜勋章", key: "week", bonus: "0.1" },
@@ -99,9 +99,25 @@ const MEDAL_NAMES: Record<string, string> = {
 	ruby: "红宝石勋章",
 };
 
-/** 日期只显示到天：达成时间的时分秒对"哪一天做到的"没有意义。 */
-function dayOf(stamp: string): string {
-	return stamp ? stamp.slice(0, 10) : "";
+/** 日期+时刻：达成时间要精确到分钟，不能只显示到天。 */
+function stampOf(raw: string, withYear = false): string {
+	if (!raw) return "";
+	// 库里有两种形态：增量结算写的是 RFC3339（带时分），老库回填只有日期。
+	const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(raw);
+	if (!m) return raw;
+	const date = withYear ? `${m[1]}-${m[2]}-${m[3]}` : `${m[2]}-${m[3]}`;
+	return m[4] ? `${date} ${m[4]}:${m[5]}` : date;
+}
+
+/** 奖励经验是按"十分之一经验"存的，这里换算成整点显示（100 / 500 / 10000…）。 */
+function rewardPoints(item: AchievementDTO): string {
+	return String(Math.round(item.rewardTenths / 10));
+}
+
+function rewardTitle(item: AchievementDTO): string {
+	return item.kind === "daily"
+		? `每天达标 +${rewardPoints(item)} 经验`
+		: `每达成一次 +${rewardPoints(item)} 经验`;
 }
 
 /** 每张卡的第二行：这一条现在是什么状态。 */
@@ -109,13 +125,13 @@ function stateText(item: AchievementDTO): string {
 	switch (item.kind) {
 		case "once":
 			if (item.unlocked) {
-				const at = dayOf(item.achievedAt);
+				const at = stampOf(item.achievedAt);
 				return at ? `达成于 ${at}` : "已达成";
 			}
 			return `还差 ${item.target - item.progress} ${item.unit}`;
 		case "cycle":
 			if (item.count > 0) {
-				const at = dayOf(item.lastAt);
+				const at = stampOf(item.lastAt);
 				return at ? `已达成 ${item.count} 次 · 上次 ${at}` : `已达成 ${item.count} 次`;
 			}
 			return `还差 ${item.target - item.progress} 天`;
@@ -125,6 +141,19 @@ function stateText(item: AchievementDTO): string {
 		default:
 			return "";
 	}
+}
+
+/** 状态行的悬停：带上年份，免得"10-13"看不出是哪一年。 */
+function stateTitle(item: AchievementDTO): string {
+	if (item.kind === "once") return item.achievedAt ? `达成于 ${stampOf(item.achievedAt, true)}` : "";
+	if (item.kind === "cycle" && item.count > 0) {
+		return item.lastAt ? `已达成 ${item.count} 次 · 上次 ${stampOf(item.lastAt, true)}` : "";
+	}
+	// 每日那张卡的位置留给"今天还差多少"，上次达成时刻放悬停里。
+	if (item.kind === "daily" && item.count > 0) {
+		return item.lastAt ? `累计 ${item.count} 天 · 上次 ${stampOf(item.lastAt, true)}` : "";
+	}
+	return "";
 }
 
 /** 每张卡进度条下面的数字。 */
@@ -200,7 +229,7 @@ function onMedalError(event: Event): void {
 							:key="medal.kind"
 							class="medal-chip"
 							:class="{ 'is-zero': medal.count === 0 }"
-							:title="`${medal.name} × ${medal.count} · 每枚让每小时多 ${medal.bonus} 经验`"
+							:title="`${medal.name} × ${medal.count} · +${medal.bonus}经验/小时`"
 						>
 							<img class="medal-img" :src="`/medals/${medal.kind}.png`" :alt="medal.name" @error="onMedalError" />
 							<span class="gx-tabular">×{{ medal.count }}</span>
@@ -228,7 +257,7 @@ function onMedalError(event: Event): void {
 							</div>
 							<div class="ach-text">
 								<span class="ach-name">{{ item.name }}</span>
-								<span class="ach-state gx-faint">{{ stateText(item) }}</span>
+								<span class="ach-state gx-faint" :title="stateTitle(item)">{{ stateText(item) }}</span>
 							</div>
 						</div>
 						<p class="ach-desc gx-muted" :title="item.description">{{ item.description }}</p>
@@ -258,8 +287,12 @@ function onMedalError(event: Event): void {
 							</div>
 							<div class="ach-text">
 								<span class="ach-name">{{ item.name }}</span>
-								<span class="ach-state gx-faint">{{ stateText(item) }}</span>
+								<span class="ach-state gx-faint" :title="stateTitle(item)">{{ stateText(item) }}</span>
 							</div>
+							<!-- 达成一次给多少经验：写在卡上，别让人去猜 -->
+							<span v-if="item.rewardTenths > 0" class="ach-reward" :title="rewardTitle(item)">
+								+{{ rewardPoints(item) }}
+							</span>
 							<img
 								v-if="item.medal"
 								class="ach-medal"
@@ -297,8 +330,11 @@ function onMedalError(event: Event): void {
 							</div>
 							<div class="ach-text">
 								<span class="ach-name">{{ item.name }}</span>
-								<span class="ach-state gx-faint">{{ stateText(item) }}</span>
+								<span class="ach-state gx-faint" :title="stateTitle(item)">{{ stateText(item) }}</span>
 							</div>
+							<span v-if="item.rewardTenths > 0" class="ach-reward" :title="rewardTitle(item)">
+								+{{ rewardPoints(item) }}
+							</span>
 						</div>
 						<p class="ach-desc gx-muted" :title="item.description">{{ item.description }}</p>
 						<div class="ach-foot">
@@ -568,6 +604,20 @@ function onMedalError(event: Event): void {
 .ach-medal.is-zero {
 	filter: grayscale(1);
 	opacity: 0.3;
+}
+
+/* 奖励经验的小徽标：达成一次给多少。数值在卡上，说明在悬停里。 */
+.ach-reward {
+	flex: 0 0 auto;
+	font-size: 10px;
+	font-weight: 650;
+	font-family: var(--gx-mono);
+	line-height: 1.5;
+	padding: 0 5px;
+	border-radius: var(--gx-r-pill);
+	color: var(--gx-accent);
+	background: var(--gx-accent-soft);
+	white-space: nowrap;
 }
 
 .ach-desc {

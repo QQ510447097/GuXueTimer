@@ -164,7 +164,8 @@ func Settle(in SettleInput) SettleOutput {
 			}
 			st := get(def.ID)
 			st.Count++
-			st.LastAt = in.Day
+			// 记到分钟：达成时刻就是这次会话被保存的时刻，比只记日期有用得多。
+			st.LastAt = stampOr(in.Now, in.Day)
 			put(def.ID, st)
 			out.State.XpTenths += def.RewardTenths
 
@@ -181,7 +182,7 @@ func Settle(in SettleInput) SettleOutput {
 			}
 			gained := want - st.Count
 			st.Count = want
-			st.LastAt = in.Day
+			st.LastAt = stampOr(in.Now, in.Day)
 			put(def.ID, st)
 			out.State.XpTenths += int64(gained) * def.RewardTenths
 			switch def.Medal {
@@ -235,6 +236,23 @@ func Settle(in SettleInput) SettleOutput {
 type Day struct {
 	Date string
 	Sec  int64
+	// EndedAt 是这天最后一条记录的结束时刻（RFC3339），可为空。
+	//
+	// 只用于回填"达成于几点几分"：回放看的是按天汇总的时长，本身没有时刻，
+	// 所以用"这天最后一条记录的结束时间"近似"当天满 1 小时的那一刻"。
+	// 增量路径（Settle）不用它——那里有精确的保存时刻。
+	EndedAt string
+}
+
+// stampOr 优先用精确时刻，没有就退回日期。
+//
+// 老库回填时只有日期（那天没有记录时刻），所以两种形态都会存在；
+// 前端的显示函数两种都要能吃。
+func stampOr(stamp, fallback string) string {
+	if stamp != "" {
+		return stamp
+	}
+	return fallback
 }
 
 // Replay 按天回放历史，算出一份完整的账。
@@ -270,7 +288,7 @@ func Replay(days []Day, firstPlanAt string) (State, []Day, map[string]Achievemen
 				}
 				cur := states[def.ID]
 				cur.Count++
-				cur.LastAt = day.Date
+				cur.LastAt = stampOr(day.EndedAt, day.Date)
 				states[def.ID] = cur
 				st.XpTenths += def.RewardTenths
 			case KindCycle:
@@ -284,7 +302,7 @@ func Replay(days []Day, firstPlanAt string) (State, []Day, map[string]Achievemen
 				}
 				gained := want - cur.Count
 				cur.Count = want
-				cur.LastAt = day.Date
+				cur.LastAt = stampOr(day.EndedAt, day.Date)
 				states[def.ID] = cur
 				st.XpTenths += int64(gained) * def.RewardTenths
 				switch def.Medal {

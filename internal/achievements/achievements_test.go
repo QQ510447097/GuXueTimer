@@ -96,15 +96,19 @@ func TestSettle_QualifyingDay(t *testing.T) {
 	}
 
 	// 正好一小时：达标，拿每日 10 点；同时这 1 小时本身也给 1.0 经验。
-	out = Settle(SettleInput{State: st, DurationSec: 3600, Day: "2026-05-01", DayTotalSec: 3600})
+	const now = "2026-05-01T14:23:45+08:00"
+	out = Settle(SettleInput{
+		State: st, DurationSec: 3600, Day: "2026-05-01", DayTotalSec: 3600, Now: now,
+	})
 	if !out.QualifyDay {
 		t.Fatal("3600 秒应当算达标")
 	}
 	if out.State.XpTenths != 110 {
 		t.Errorf("经验 = %d, 期望 110（每日 100 + 这一小时 10）", out.State.XpTenths)
 	}
-	if got := out.States["daily-hour"]; got.Count != 1 || got.LastAt != "2026-05-01" {
-		t.Errorf("每日成就状态 = %+v, 期望次数 1、上次 2026-05-01", got)
+	// 达成时刻要精确到分钟，不能只记日期。
+	if got := out.States["daily-hour"]; got.Count != 1 || got.LastAt != now {
+		t.Errorf("每日成就状态 = %+v, 期望次数 1、上次 %q", got, now)
 	}
 
 	// 同一天再来一段：不重复计达标（状态也不该出现在变化量里）。
@@ -233,6 +237,21 @@ func TestSettle_OnceAchievedAtIsStable(t *testing.T) {
 	})
 	if got := second.States["hours-10"].AchievedAt; got != "" {
 		t.Errorf("已达成的单次成就被重复写入了: %q", got)
+	}
+}
+
+// 回放（老库回填）用"那天最后一条记录的结束时刻"当达成时刻。
+func TestReplay_UsesDayEndedAt(t *testing.T) {
+	const ended = "2026-05-01T21:07:00+08:00"
+	_, _, states := Replay([]Day{{Date: "2026-05-01", Sec: 3600, EndedAt: ended}}, "")
+	if got := states["daily-hour"].LastAt; got != ended {
+		t.Errorf("回放记的达成时刻 = %q, 期望用那天的结束时刻", got)
+	}
+
+	// 没有时刻（更老的数据）就退回日期，别把空串写进去。
+	_, _, states = Replay([]Day{{Date: "2026-05-02", Sec: 3600}}, "")
+	if got := states["daily-hour"].LastAt; got != "2026-05-02" {
+		t.Errorf("没有时刻时应当退回日期, 得到 %q", got)
 	}
 }
 

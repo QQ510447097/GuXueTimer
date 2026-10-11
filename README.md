@@ -96,7 +96,7 @@ SQLite 文件里，关窗最小化到系统托盘。它刻意不打断你：没�
 ```go
 {
     ID: "hours-50", Name: "五十小时", Kind: KindOnce, Unit: "小时", Target: 50,
-    Description: "累计学习满 50 小时。",
+    Description: "累计学习满 50 小时",
     Value:    func(s Stats) int64 { return s.TotalSec / 3600 },
     OnSettle: func(in SettleInput) bool { return in.TotalSec >= 50*3600 },
 },
@@ -106,10 +106,13 @@ SQLite 文件里，关窗最小化到系统托盘。它刻意不打断你：没�
 
 ```go
 {ID: "week-2", Name: "双周之约", Kind: KindCycle, PeriodDays: 14,
- RewardTenths: 1500, Medal: MedalBronze, Description: "累计 14 天学习满 1 小时。"},
+ RewardTenths: 1500, Medal: MedalBronze, Description: "累计 14 天学习满 1 小时"},
 ```
 
-前端不用改：分组、进度条、达成次数与奖章都由这一份定义驱动。想让某个成就有自己的图，
+`Description` **不写句号**：它在卡片上是一行小字，加句号只是噪音。
+`RewardTenths` 是十分之一经验，前端的 `+100` 徽标就是它。
+
+前端不用改：分组、进度条、经验徽标、达成次数与奖章都由这一份定义驱动。想让某个成就有自己的图，
 放 `frontend/public/badges/<id>.png`（规格见该目录下的 README），
 **没有图就回退到应用图标**，所以可以先只写定义、之后再补美术。
 
@@ -128,8 +131,16 @@ flex 项、高度确定，只有 height 才给这一列一个上界，里面的�
 写成 min-height 的话整页会跟着内容一起变高，体检直接挂。
 
 成长倍率的加成不铺在页面上：经验条下方那四枚勋章，悬停会说明这一枚值多少
-（"铜勋章 × 2 · 每枚让每小时多 0.1 经验"）。末尾那张「寸阴寸金」只有一句
+（"铜勋章 × 2 · +0.1经验/小时"）。末尾那张「寸阴寸金」只有一句
 "每小时学习获得经验"，不再重复解释。
+
+给经验的那五条（循环四条 + 每日一条）在卡片上有一颗 `+100` 这样的小徽标，
+悬停说明是"每达成一次"还是"每天达标"；不写徽标的单次成就本来就不给经验。
+
+达成时间**记到分钟**：增量结算存的是这次会话被保存的时刻（RFC3339），
+卡片上显示 `达成于 10-05 05:53`，悬停给出带年份的完整时刻。老库回填时只有
+按天的数据，用"那天最后一条记录的结束时刻"近似（`LastEndedAtByDay`），
+实在没有时刻就退回日期——前端两种形态都能显示。
 
 奖章图在 `frontend/public/medals/{bronze,silver,gold,ruby}.png`：从 `assets/` 那四张
 512×512 缩到 **128×128** 再进产物（显示尺寸只有 36~44px）。**必须缩**——前端产物是

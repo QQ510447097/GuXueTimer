@@ -365,8 +365,16 @@ func (b *backend) backfillProgressIfNeeded() error {
 	}
 
 	dayList := make([]achievements.Day, 0, len(stats.Days))
+	lastEnded, err := b.db.LastEndedAtByDay()
+	if err != nil {
+		return err
+	}
 	for _, d := range stats.Days {
-		dayList = append(dayList, achievements.Day{Date: d.Date, Sec: d.TotalSec})
+		dayList = append(dayList, achievements.Day{
+			Date:    d.Date,
+			Sec:     d.TotalSec,
+			EndedAt: lastEnded[d.Date],
+		})
 	}
 	state, qualifying, st := achievements.Replay(dayList, firstPlanAt)
 
@@ -397,6 +405,60 @@ func (b *backend) backfillProgressIfNeeded() error {
 		"xpTenths", state.XpTenths, "level", state.Level,
 		"qualifyingDays", len(rows), "sessions", count)
 	return nil
+}
+
+// enrichStampPrecision 给只记到日期的达成时间补上时刻。
+//
+// v3 第一版的回填只写到日期（按天汇总里本来就没有时刻），而增量结算记的是
+// 精确到分钟的保存时刻。这一步把老的补成"那天最后一条记录的结束时刻"，与增量
+// 路径对齐。**只填空、只补时刻**：不改日期、不改次数、不改经验，所以对账没有
+// 任何影响；跑过一次之后就没有可补的了，是空转。
+func (b *backend) enrichStampPrecision() error {
+	states, err := b.db.LoadAchievementStates()
+	if err != nil {
+		return err
+	}
+	if len(states) == 0 {
+		return nil
+	}
+
+	lastEnded, err := b.db.LastEndedAtByDay()
+	if err != nil {
+		return err
+	}
+
+	filled := 0
+	for _, st := range states {
+		changed := false
+		if dateOnly(st.LastAt) {
+			if at := lastEnded[st.LastAt]; at != "" {
+				st.LastAt = at
+				changed = true
+			}
+		}
+		if dateOnly(st.AchievedAt) {
+			if at := lastEnded[st.AchievedAt]; at != "" {
+				st.AchievedAt = at
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		if err := b.db.SaveAchievementState(st); err != nil {
+			return err
+		}
+		filled++
+	}
+	if filled > 0 {
+		slog.Info("已把达成时间补精确到分钟", "rows", filled)
+	}
+	return nil
+}
+
+// dateOnly 判断一个时间戳是不是"只有日期"（YYYY-MM-DD，没有时分）。
+func dateOnly(stamp string) bool {
+	return len(stamp) == len(layoutDateKey) && stamp[4] == '-'
 }
 
 // markFirstPlan 在第一次创建计划时记下达成时间（只写一次）。

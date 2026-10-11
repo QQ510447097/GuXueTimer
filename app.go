@@ -130,6 +130,10 @@ func newBackend(db *store.DB, clk func() time.Time) (*backend, error) {
 	if err := b.backfillProgressIfNeeded(); err != nil {
 		return nil, err
 	}
+	// 第一版回填的达成时间只到日期，这里补成"那天最后一条记录的结束时刻"。
+	if err := b.enrichStampPrecision(); err != nil {
+		return nil, err
+	}
 	return b, nil
 }
 

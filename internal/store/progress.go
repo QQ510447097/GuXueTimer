@@ -249,3 +249,33 @@ func (d *DB) FirstPlanCreatedAt() (string, error) {
 	}
 	return at, nil
 }
+
+// LastEndedAtByDay 返回每天最后一条记录的结束时刻（RFC3339），按日期索引。
+//
+// 只给"回填达成时刻"用：老库升级时回放看到的是按天汇总的时长，本身没有时刻，
+// 于是用这天最后一条记录的结束时间近似"当天满 1 小时的那一刻"。
+// 增量路径（结束并保存时结算）不用它——那里有精确的保存时刻。
+func (d *DB) LastEndedAtByDay() (map[string]string, error) {
+	rows, err := d.sql.Query(
+		`SELECT substr(started_at, 1, 10) AS day, MAX(ended_at)
+		   FROM sessions
+		  GROUP BY day`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("统计每天的结束时刻失败: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]string{}
+	for rows.Next() {
+		var day, ended string
+		if err := rows.Scan(&day, &ended); err != nil {
+			return nil, fmt.Errorf("读取每天的结束时刻失败: %w", err)
+		}
+		out[day] = ended
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历每天的结束时刻失败: %w", err)
+	}
+	return out, nil
+}

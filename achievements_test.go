@@ -249,6 +249,66 @@ func TestAchievements_BackfillsFromRecords(t *testing.T) {
 	if sum.QualifyingDays != 1 {
 		t.Errorf("回填后的达标日 = %d, 期望 1", sum.QualifyingDays)
 	}
+	// 回填的达成时间要精确到分钟（用那天最后一条记录的结束时刻），不是只有日期。
+	for _, item := range sum.Items {
+		if item.ID != "daily-hour" {
+			continue
+		}
+		if len(item.LastAt) <= len("2006-01-02") {
+			t.Errorf("回填后的达成时间只有日期: %q", item.LastAt)
+		}
+	}
+}
+
+// 只到日期的旧达成时间会被补精确（只填空，不动日期/次数/经验）。
+func TestAchievements_EnrichesDateOnlyStamps(t *testing.T) {
+	h := newHarness(t)
+	svc := NewAchievementsService(h.b)
+	record(t, h, 2*time.Hour)
+
+	after, err := svc.Summary()
+	if err != nil {
+		t.Fatalf("Summary() 失败: %v", err)
+	}
+	var before int64
+	for _, item := range after.Items {
+		if item.ID == "daily-hour" {
+			if item.Count != 1 {
+				t.Fatalf("每日达成次数 = %d, 期望 1", item.Count)
+			}
+			// 人为退回"只有日期"的老形态。
+			day := item.LastAt[:10]
+			if err := h.b.db.SaveAchievementState(store.AchievementStateRow{
+				ID: "daily-hour", Count: 1, LastAt: day,
+			}); err != nil {
+				t.Fatalf("退回旧形态失败: %v", err)
+			}
+		}
+	}
+	before = after.Level.XpTenths
+
+	if err := h.b.enrichStampPrecision(); err != nil {
+		t.Fatalf("enrichStampPrecision() 失败: %v", err)
+	}
+
+	sum, err := svc.Summary()
+	if err != nil {
+		t.Fatalf("Summary() 失败: %v", err)
+	}
+	if sum.Level.XpTenths != before {
+		t.Errorf("补精度动了经验: %d -> %d", before, sum.Level.XpTenths)
+	}
+	for _, item := range sum.Items {
+		if item.ID != "daily-hour" {
+			continue
+		}
+		if item.Count != 1 {
+			t.Errorf("补精度动了达成次数: %d", item.Count)
+		}
+		if len(item.LastAt) <= len("2006-01-02") {
+			t.Errorf("补精度之后仍然只有日期: %q", item.LastAt)
+		}
+	}
 }
 
 // 第一次计时就要把汇总数字算对。

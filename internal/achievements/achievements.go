@@ -114,7 +114,7 @@ var All = []Definition{
 	{
 		ID:          "first-plan",
 		Name:        "千里之行，始于足下",
-		Description: "第一次创建学习计划。",
+		Description: "第一次创建学习计划",
 		Kind:        KindOnce,
 		Unit:        "次",
 		Target:      1,
@@ -129,7 +129,7 @@ var All = []Definition{
 	{
 		ID:          "hours-10",
 		Name:        "不积跬步，无以至千里",
-		Description: "累计学习满 10 小时。",
+		Description: "累计学习满 10 小时",
 		Kind:        KindOnce,
 		Unit:        "小时",
 		Target:      10,
@@ -139,7 +139,7 @@ var All = []Definition{
 	{
 		ID:          "hours-100",
 		Name:        "锲而不舍，金石可镂",
-		Description: "累计学习满 100 小时。",
+		Description: "累计学习满 100 小时",
 		Kind:        KindOnce,
 		Unit:        "小时",
 		Target:      100,
@@ -149,7 +149,7 @@ var All = []Definition{
 	{
 		ID:          "hours-1000",
 		Name:        "水滴石穿，非一日之功",
-		Description: "累计学习满 1000 小时。",
+		Description: "累计学习满 1000 小时",
 		Kind:        KindOnce,
 		Unit:        "小时",
 		Target:      1000,
@@ -159,7 +159,7 @@ var All = []Definition{
 	{
 		ID:           "week-7",
 		Name:         "七日之约",
-		Description:  "累计 7 天学习满 1 小时。",
+		Description:  "累计 7 天学习满 1 小时",
 		Kind:         KindCycle,
 		PeriodDays:   7,
 		RewardTenths: 1000,
@@ -168,7 +168,7 @@ var All = []Definition{
 	{
 		ID:           "month-30",
 		Name:         "积月成岁",
-		Description:  "累计 30 天学习满 1 小时。",
+		Description:  "累计 30 天学习满 1 小时",
 		Kind:         KindCycle,
 		PeriodDays:   30,
 		RewardTenths: 5000,
@@ -177,7 +177,7 @@ var All = []Definition{
 	{
 		ID:           "quarter-90",
 		Name:         "一季之恒",
-		Description:  "累计 90 天学习满 1 小时。",
+		Description:  "累计 90 天学习满 1 小时",
 		Kind:         KindCycle,
 		PeriodDays:   90,
 		RewardTenths: 20000,
@@ -186,7 +186,7 @@ var All = []Definition{
 	{
 		ID:           "year-365",
 		Name:         "岁岁不辍",
-		Description:  "累计 365 天学习满 1 小时。",
+		Description:  "累计 365 天学习满 1 小时",
 		Kind:         KindCycle,
 		PeriodDays:   365,
 		RewardTenths: 100000,
@@ -195,7 +195,7 @@ var All = []Definition{
 	{
 		ID:           "daily-hour",
 		Name:         "今日之课",
-		Description:  "当天累计学习满 1 小时。",
+		Description:  "当天累计学习满 1 小时",
 		Kind:         KindDaily,
 		PeriodDays:   1,
 		RewardTenths: DailyTenths,
