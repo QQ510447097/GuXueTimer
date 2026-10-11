@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import GlassPanel from "../components/GlassPanel.vue";
 import brandMark from "../assets/brand-mark.png";
+import hourlyXp from "../assets/hourly-xp.png";
 import type { AchievementDTO } from "../../bindings/goxuetimer/models";
 import { formatDurationCN } from "../composables/format";
 import { useAchievements } from "../composables/useAchievements";
@@ -19,8 +20,10 @@ import { useAchievements } from "../composables/useAchievements";
  *
  * - **单次**：够线就永远达成，只记达成时间，不给经验。
  * - **循环**：累计若干个"达标日"（当天满 1 小时）达成一次，可以反复达成；
- *   每次给经验并发一枚奖章，奖章会永久抬高"每小时经验"。
- * - **每日**：周期为 1 天的循环；另一张"每小时经验"是机制说明卡，不是成就。
+ *   每次给经验并发一枚奖章，奖章会永久抬高每小时的收益。
+ * - **每日**：周期为 1 天的循环；末尾那张「寸阴寸金」是机制说明卡，不是成就
+ *   （它每小时都在结算，套不进"达成一次"的模型），所以它的图不走 /badges/，
+ *   而是跟应用图标一样由 Vite 静态引入。
  *
  * ## 面积
  *
@@ -28,8 +31,8 @@ import { useAchievements } from "../composables/useAchievements";
  * 整页不许被撑出滚动条（界面体检有一条"六屏一屏放得下"），而且以后加成就
  * 也不会把页面顶开。
  *
- * 成就图暂用应用图标占位；将来放 `frontend/public/badges/<id>.png` 会自动替换
- * （加载失败就退回图标，见 onArtError）。
+ * 成就图按 id 取 `frontend/public/badges/<id>.png`（丢文件进去就能换，不用改代码）；
+ * 万一缺图或加载失败就退回应用图标，见 onArtError。
  */
 const { summary, loading, error, refresh } = useAchievements();
 void refresh();
@@ -69,7 +72,7 @@ const levelRatePercent = computed(() => {
  * 奖章四件套：固定展示四个位置（数量为 0 也占位，布局才不会随数据跳）。
  */
 const MEDAL_ORDER = [
-	{ kind: "bronze", name: "铜质勋章", key: "week" },
+	{ kind: "bronze", name: "铜勋章", key: "week" },
 	{ kind: "silver", name: "银勋章", key: "month" },
 	{ kind: "gold", name: "金勋章", key: "quarter" },
 	{ kind: "ruby", name: "红宝石勋章", key: "year" },
@@ -85,7 +88,7 @@ const medalRow = computed(() => {
 });
 
 const MEDAL_NAMES: Record<string, string> = {
-	bronze: "铜质勋章",
+	bronze: "铜勋章",
 	silver: "银勋章",
 	gold: "金勋章",
 	ruby: "红宝石勋章",
@@ -301,19 +304,19 @@ function onMedalError(event: Event): void {
 						</div>
 					</GlassPanel>
 
-					<!-- 成长卡：说明"每小时经验"这条机制，不算成就 -->
+					<!-- 机制卡「寸阴寸金」：说明每小时的收益，不算成就 -->
 					<GlassPanel class="ach kind-growth" padding="9px 12px">
 						<div class="ach-head">
 							<div class="ach-art">
-								<img :src="brandMark" alt="每小时经验" />
+								<img :src="hourlyXp" alt="寸阴寸金" />
 							</div>
 							<div class="ach-text">
-								<span class="ach-name">每小时经验</span>
+								<span class="ach-name">寸阴寸金</span>
 								<span class="ach-state gx-faint">每小时 +{{ fmtXp(level.rateTenths) }} 经验</span>
 							</div>
 						</div>
-						<p class="ach-desc gx-muted" title="每学满 1 小时结算一次，奖章越多每小时越值钱">
-							每学满 1 小时结算一次，奖章越多每小时越值钱
+						<p class="ach-desc gx-muted" title="每学满一小时就多得一份经验，奖章越多这份越厚">
+							每学满一小时就多得一份经验，奖章越多这份越厚
 						</p>
 						<div class="ach-foot">
 							<div class="track">
