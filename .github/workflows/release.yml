@@ -38,7 +38,21 @@ jobs:
         # 版本要与 go.mod 里的 wails 依赖一致，否则生成绑定/构建可能对不上。
         run: |
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.27
-          echo "$(go env GOPATH)/bin" >> $env:GITHUB_PATH
+          Add-Content -Path $env:GITHUB_PATH -Value (Join-Path (go env GOPATH) 'bin')
+        shell: pwsh
+
+      - name: 确认 wails3 可用
+        # 上一步的执行结果直接决定后面能不能构建，先在这里断掉，
+        # 免得跑到"构建"那一步才失败、只剩一句 exit code 1。
+        run: |
+          $exe = Get-Command wails3 -ErrorAction SilentlyContinue
+          if (-not $exe) {
+            $bin = Join-Path (go env GOPATH) 'bin'
+            Write-Host "::error title=wails3 不在 PATH 里::GOPATH/bin = $bin；该目录内容：" 
+            if (Test-Path $bin) { Get-ChildItem $bin | ForEach-Object { Write-Host "  $_" } }
+            exit 1
+          }
+          wails3 version
         shell: pwsh
 
       - name: 装前端依赖
@@ -58,7 +72,18 @@ jobs:
         run: go test ./internal/... .
 
       - name: 构建
-        run: wails3 build
+        # 用 ::error:: 把失败原因报成 annotation：Actions 的原始日志要登录才能看，
+        # annotation 走公开 API 就能读到，排查 CI 时省一轮来回。
+        shell: pwsh
+        run: |
+          $out = & wails3 build 2>&1
+          $code = $LASTEXITCODE
+          $out | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) {
+            $tail = ($out | Select-Object -Last 25) -join '%0A'
+            Write-Host "::error title=wails3 build 失败::exit=$code`n$tail"
+            exit $code
+          }
 
       - name: 打便携版 zip
         shell: pwsh
