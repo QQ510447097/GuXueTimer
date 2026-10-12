@@ -72,28 +72,7 @@ jobs:
         run: go test ./internal/... .
 
       - name: 构建
-        # 这一层是照着 CI 的脾气写的，本地不需要这么绕：
-        #   - 通过 cmd /c 调用并把 2>&1 收进变量，尽量把子进程输出抓全；
-        #   - `wails3 build` 与 `wails3 task windows:build` 两条路径都试一遍
-        #     （前者是 CLI 子命令、后者走 Taskfile），哪条能过用哪条；
-        #   - 失败时用 ::error:: 输出，Actions 原始日志要登录才能看，
-        #     annotation 走公开 API 就能读到。
-        shell: pwsh
-        run: |
-          $ok = $false
-          foreach ($cmd in @('wails3 build', 'wails3 task windows:build')) {
-            Write-Host "== 尝试: $cmd"
-            $out = & cmd /c "$cmd 2>&1"
-            $code = $LASTEXITCODE
-            $out | ForEach-Object { Write-Host $_ }
-            if ($code -eq 0) { Write-Host "== 成功: $cmd"; $ok = $true; break }
-            Write-Host "== 失败: $cmd（exit=$code）"
-          }
-          if (-not $ok) {
-            Write-Host "::error title=构建失败::两条路径都退出了非 0，详见 Actions 日志"
-            exit 1
-          }
-          Get-ChildItem bin | Select-Object Name, Length
+        run: wails3 build
 
       - name: 打便携版 zip
         shell: pwsh
@@ -111,10 +90,23 @@ jobs:
       - name: 打安装包（NSIS，按用户安装、免 UAC）
         shell: pwsh
         run: |
-          # GitHub 的 Windows 运行器通常自带 NSIS；没有就现装。
+          # GitHub 的 windows 运行器实测**没有**预装 NSIS，用 choco 装。
+          # 坑在：choco 装完不会刷新当前会话的 PATH，不手动补进去的话，
+          # makensis 当场依然是 "executable file not found in $PATH"。
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
             choco install nsis -y --no-progress
+            $nsis = @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS") |
+              Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($nsis) {
+              $env:PATH = "$nsis;$env:PATH"
+              Add-Content -Path $env:GITHUB_PATH -Value $nsis
+            }
           }
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            Write-Host "::error title=NSIS 不可用::makensis 仍然找不到，安装包无法生成"
+            exit 1
+          }
+          makensis -VERSION
           # INSTALL_SCOPE=user：装到 %LOCALAPPDATA%\Programs，不弹 UAC。
           wails3 task package INSTALL_SCOPE=user
           Move-Item bin/GuXueTimer-amd64-installer.exe "dist/GuXueTimer-$env:TAG-windows-amd64-setup.exe"
