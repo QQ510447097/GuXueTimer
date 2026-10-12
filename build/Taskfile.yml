@@ -191,18 +191,21 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts -i
 
   generate:icons:
-    summary: Generates the Windows `.ico` from the app icon.
+    summary: 从 appicon.png 生成 Windows 的 .ico（mac 的 .icns 是这条命令的附带产物，已 gitignore）。
     run: once
     dir: build
     sources:
       - "appicon.png"
     generates:
       - "windows/icon.ico"
+      - "darwin/icon.icns"
     cmds:
-      # 只生成 Windows 的 .ico：这个项目只发 Windows 版，原来那条命令还会
-      # 顺手往 build/darwin/ 写一个 1.8 MB 的 .icns（每次构建都重生成），
-      # 现在连 build/darwin 一起删掉了。将来真要做 macOS 版再加上 -macfilename。
-      - wails3 generate icons -input appicon.png -windowsfilename windows/icon.ico
+      # -macfilename 必须显式给：这条命令在 build/ 目录下跑，而它的默认值是
+      # "build/darwin/icon.icns"，拼出来会变成 build/build/darwin/… 直接报
+      # "The system cannot find the path specified"，整个构建就挂在这儿。
+      # 这个项目只发 Windows 版，那个 .icns 纯属陪跑：build/darwin/ 留了个
+      # .gitkeep 让目录存在，生成的图标本身不进版本库。
+      - wails3 generate icons -input appicon.png -windowsfilename windows/icon.ico -macfilename darwin/icon.icns
 
   dev:frontend:
     summary: Runs the frontend in development mode

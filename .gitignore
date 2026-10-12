@@ -23,3 +23,7 @@ build/android/overlay.json
 build/android/gen/
 # 发布产物（本地打包/CI 生成，随时可重建）
 /dist/
+
+# wails3 generate icons 默认要往 build/darwin/ 写一个 mac 图标（没有开关能跳过）。
+# 目录本身必须存在，所以留了 .gitkeep；这个 1.8 MB 的产物不进版本库。
+build/darwin/icon.icns
