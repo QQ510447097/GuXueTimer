@@ -21,3 +21,5 @@ build/ios/xcode/overlay.json
 build/ios/xcode/gen/
 build/android/overlay.json
 build/android/gen/
+# 发布产物（本地打包/CI 生成，随时可重建）
+/dist/

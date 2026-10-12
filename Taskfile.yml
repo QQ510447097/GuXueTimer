@@ -10,13 +10,14 @@ vars:
   # tasks below dispatch to the matching platform Taskfile via this variable.
   GOOS: '{{.GOOS | default OS}}'
 
+# 只保留这个项目真正会用的平台：Windows 是唯一发布目标，linux 留着（28 KB）
+# 算给自己留个门；darwin / ios / android 那三套脚手架（其中 build/darwin 里
+# 有 6.8 MB 苹果格式的图标）已经删掉了。将来要做 macOS 版，重新跑一次
+# `wails3 init` 建个空项目、把它们拷回来即可。
 includes:
   common: ./build/Taskfile.yml
   windows: ./build/windows/Taskfile.yml
-  darwin: ./build/darwin/Taskfile.yml
   linux: ./build/linux/Taskfile.yml
-  ios: ./build/ios/Taskfile.yml
-  android: ./build/android/Taskfile.yml
 
 tasks:
   build:

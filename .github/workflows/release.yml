@@ -1,0 +1,115 @@
+name: release
+
+# 打 v* 标签时：构建 → 发 Release（便携版 zip、安装包、校验和）。
+# 也可以在 Actions 页面手动运行一次：只构建并上传 artifact，不发版，
+# 用来确认流水线本身没问题（第一次发版前建议先这么跑一遍）。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: 取源码
+        uses: actions/checkout@v4
+
+      - name: 装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 装 wails3 CLI
+        # 版本要与 go.mod 里的 wails 依赖一致，否则生成绑定/构建可能对不上。
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.27
+          echo "$(go env GOPATH)/bin" >> $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: 装前端依赖
+        working-directory: frontend
+        run: npm ci
+
+      # 只跑不需要窗口的测试：GitHub 的运行器没有交互式桌面，
+      # 冒烟脚本（tools/smoke_test.ps1）要真的开窗口、点托盘，会挂。
+      - name: 单元测试与集成测试
+        run: go test ./internal/... .
+
+      - name: 构建
+        run: wails3 build
+
+      - name: 打便携版 zip
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME } else { "dev-$env:GITHUB_RUN_NUMBER" }
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          New-Item -ItemType Directory -Force dist | Out-Null
+          # 平铺打包（不套一层目录）：解压出来就是 exe，双击即可用。
+          Copy-Item docs/PORTABLE-README.txt dist/使用说明.txt
+          Compress-Archive -Path bin/GuXueTimer.exe, LICENSE, dist/使用说明.txt `
+            -DestinationPath "dist/GuXueTimer-$tag-windows-amd64.zip" -Force
+          Remove-Item dist/使用说明.txt
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - name: 打安装包（NSIS，按用户安装、免 UAC）
+        shell: pwsh
+        run: |
+          # GitHub 的 Windows 运行器通常自带 NSIS；没有就现装。
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+          }
+          # INSTALL_SCOPE=user：装到 %LOCALAPPDATA%\Programs，不弹 UAC。
+          wails3 task package INSTALL_SCOPE=user
+          Move-Item bin/GuXueTimer-amd64-installer.exe "dist/GuXueTimer-$env:TAG-windows-amd64-setup.exe"
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - name: 生成校验和
+        shell: pwsh
+        run: |
+          Set-Location dist
+          Get-ChildItem -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content SHA256SUMS.txt -Encoding utf8
+          Get-Content SHA256SUMS.txt
+
+      - name: 上传构建产物（手动运行时便于下载检查）
+        uses: actions/upload-artifact@v4
+        with:
+          name: GuXueTimer-windows
+          path: dist/*
+
+      - name: 发布 Release（仅标签触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          body: |
+            ## 下载哪个
+
+            | 文件 | 是什么 |
+            |---|---|
+            | `GuXueTimer-${{ github.ref_name }}-windows-amd64.zip` | **便携版**：解压后双击 `GuXueTimer.exe` 就能用。不写注册表、不需要管理员权限，删掉文件夹即卸载 |
+            | `GuXueTimer-${{ github.ref_name }}-windows-amd64-setup.exe` | **安装包**：按用户安装、不弹 UAC，带开始菜单与卸载项；系统缺 WebView2 运行时会自动补装 |
+            | `SHA256SUMS.txt` | 校验和。核对：`certutil -hashfile <文件> SHA256`（或 `sha256sum -c SHA256SUMS.txt`） |
+
+            > [!IMPORTANT]
+            > 首次运行 Windows 可能提示「已保护你的电脑」——这个程序没有购买代码签名证书。
+            > 点「更多信息」→「仍要运行」即可。
+
+            数据都在 `%LOCALAPPDATA%\GuXueTimer`。卸载或删除程序**不会**动你的记录；
+            要彻底清理就把这个目录一起删掉。详细说明见仓库首页的「数据与隐私」。

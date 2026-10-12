@@ -15,6 +15,12 @@ info:
   comments: "Go + Wails v3 + Vue 3"
   # 改版本号时同时改 main.go 的 appVersion（界面「关于」显示的就是它），
   # 然后跑 `wails3 task common:update:build-assets` 让 exe 的版本信息跟上。
+  #
+  # ⚠️ 两个已知的上游限制，跑完上面那条命令要回 build/windows/info.json 看一眼：
+  #   1. 它只生成 file_version，产品版本会留在 0.0.0.0，所以那份 json 里手工补了一行
+  #      fixed.product_version，会被覆盖掉，需要补回来。
+  #   2. info 那段字符串（产品名 / 公司 / 版权）目前这个 Wails 版本不会写进 exe 的
+  #      版本资源（fixed 那部分能写进去）。试过 "0000" 与简中 "0804"，都一样。
   version: "1.0.0"
 
 # iOS build configuration (uncomment to customise iOS project generation)

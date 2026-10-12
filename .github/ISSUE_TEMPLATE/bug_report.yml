@@ -1,0 +1,53 @@
+name: Bug 反馈
+description: 报告一个问题或异常
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 你期望的结果，和实际发生的结果
+      placeholder: |
+        我做了什么：
+        期望：
+        实际：
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 应用内「设置 → 关于」里显示的版本号；或告诉我是哪个文件
+      placeholder: 1.0.0（便携版 / 安装包 / 自己构建）
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 能稳定重现的话，写清点哪里、按什么顺序
+      placeholder: |
+        1. 打开「记录」页
+        2. 切到「本月」
+        3. ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 日志
+      description: 如果方便，把 %LOCALAPPDATA%\GuXueTimer\app.log 的最后几十行贴在这里
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: env
+    attributes:
+      label: 系统环境
+      placeholder: Windows 11 23H2 / 单屏 1920x1080 / 缩放 125%
+    validations:
+      required: false
