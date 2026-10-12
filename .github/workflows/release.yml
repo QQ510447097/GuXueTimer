@@ -29,7 +29,8 @@ jobs:
       - name: 装 Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 跟开发机上生成 package-lock.json 的版本对齐，少一类意外。
+          node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -43,6 +44,13 @@ jobs:
       - name: 装前端依赖
         working-directory: frontend
         run: npm ci
+
+      # 必须先构建前端：main.go 里有 //go:embed all:frontend/dist，
+      # 这个目录不存在的话，连 go test 的测试二进制都编译不过
+      # （本地之所以没事，是因为 frontend/dist 早就在那儿了）。
+      - name: 构建前端
+        working-directory: frontend
+        run: npm run build
 
       # 只跑不需要窗口的测试：GitHub 的运行器没有交互式桌面，
       # 冒烟脚本（tools/smoke_test.ps1）要真的开窗口、点托盘，会挂。

@@ -308,13 +308,20 @@ wails3 doctor                       # 环境体检
 
 wails3 dev                          # 开发模式：前端热更新 + Go 改动自动重建
 
-go build .                          # 只编译后端（比 wails3 build 快得多）
+go build .                          # 只编译后端（比 wails3 build 快得多，但见下）
 go vet ./internal/... .
 go test ./internal/... .            # 全部单元测试与集成测试
 
 wails3 task common:generate:bindings -f   # 改了 Go 的结构体/服务方法后必须重跑
 wails3 build                        # 产出 bin/GuXueTimer.exe
 ```
+
+> **新克隆下来的仓库，先跑一次 `cd frontend && npm run build`**。
+> `main.go` 里有 `//go:embed all:frontend/dist`，这个目录不存在时
+> `go build .`、`go test .` 甚至 `go vet .` 都会直接编译失败
+> （报 `pattern all:frontend/dist: no matching files found`）。
+> 本地平时没事，只是因为 `frontend/dist` 早就在那儿了。
+> CI 里也因此必须把"构建前端"排在测试之前。
 
 ### 三个容易踩的坑
 
