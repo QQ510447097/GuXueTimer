@@ -15,7 +15,7 @@ import (
 //   - windowTranslucent：窗口毛玻璃曾经是个开关，现在恒为开、界面里没有开关。
 //   - customQuote / quoteIndex：语录功能已整条删除（见 CardModeNone 的注释）。
 //   - breakReminderEnabled / breakIntervalMin：休息提醒已整条删除
-//     （它会打断心流，见 README「不做的事」）。
+//     （它会打断心流，见 docs/DEVELOPMENT.md 里「休息提醒已经整条删除」那段）。
 const (
 	KeyMinimizeToTray = "minimizeToTray"
 	KeyTheme          = "theme"

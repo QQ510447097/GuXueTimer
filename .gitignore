@@ -9,8 +9,10 @@ frontend/node_modules
 # tools/ 下的 Python 辅助脚本被直接执行或互相导入时会生成缓存
 __pycache__/
 
-# tools/shoot.ps1 的截图产物：随时可以重跑生成，不进版本库
-screenshots/
+# tools/shoot.ps1 的截图产物：随时可以重跑生成，不进版本库。
+# 前导斜杠是必须的：写成 screenshots/ 会连 docs/images/ 一起忽略掉，
+# 那样项目页的图全是裂的。
+/screenshots/
 
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
