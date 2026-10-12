@@ -72,18 +72,28 @@ jobs:
         run: go test ./internal/... .
 
       - name: 构建
-        # 用 ::error:: 把失败原因报成 annotation：Actions 的原始日志要登录才能看，
-        # annotation 走公开 API 就能读到，排查 CI 时省一轮来回。
+        # 这一层是照着 CI 的脾气写的，本地不需要这么绕：
+        #   - 通过 cmd /c 调用并把 2>&1 收进变量，尽量把子进程输出抓全；
+        #   - `wails3 build` 与 `wails3 task windows:build` 两条路径都试一遍
+        #     （前者是 CLI 子命令、后者走 Taskfile），哪条能过用哪条；
+        #   - 失败时用 ::error:: 输出，Actions 原始日志要登录才能看，
+        #     annotation 走公开 API 就能读到。
         shell: pwsh
         run: |
-          $out = & wails3 build 2>&1
-          $code = $LASTEXITCODE
-          $out | ForEach-Object { Write-Host $_ }
-          if ($code -ne 0) {
-            $tail = ($out | Select-Object -Last 25) -join '%0A'
-            Write-Host "::error title=wails3 build 失败::exit=$code`n$tail"
-            exit $code
+          $ok = $false
+          foreach ($cmd in @('wails3 build', 'wails3 task windows:build')) {
+            Write-Host "== 尝试: $cmd"
+            $out = & cmd /c "$cmd 2>&1"
+            $code = $LASTEXITCODE
+            $out | ForEach-Object { Write-Host $_ }
+            if ($code -eq 0) { Write-Host "== 成功: $cmd"; $ok = $true; break }
+            Write-Host "== 失败: $cmd（exit=$code）"
           }
+          if (-not $ok) {
+            Write-Host "::error title=构建失败::两条路径都退出了非 0，详见 Actions 日志"
+            exit 1
+          }
+          Get-ChildItem bin | Select-Object Name, Length
 
       - name: 打便携版 zip
         shell: pwsh
