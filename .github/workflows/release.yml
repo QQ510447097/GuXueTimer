@@ -60,8 +60,8 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           # 平铺打包（不套一层目录）：解压出来就是 exe，双击即可用。
           Copy-Item docs/PORTABLE-README.txt dist/使用说明.txt
-          Compress-Archive -Path bin/GuXueTimer.exe, LICENSE, dist/使用说明.txt `
-            -DestinationPath "dist/GuXueTimer-$tag-windows-amd64.zip" -Force
+          $zip = "dist/GuXueTimer-$tag-windows-amd64.zip"
+          Compress-Archive -Path bin/GuXueTimer.exe, LICENSE, dist/使用说明.txt -DestinationPath $zip -Force
           Remove-Item dist/使用说明.txt
           Get-ChildItem dist | Select-Object Name, Length
 
